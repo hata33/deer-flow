@@ -1,0 +1,36 @@
+# Mini Agent 默认配置
+# 这个文件会在没有 config.yaml 时被使用
+
+log_level: INFO
+debug: false
+
+# 模型配置 - 请添加你自己的 API 密钥
+models:
+  - name: gpt-4
+    provider: openai
+    model: gpt-4-turbo-preview
+    api_key: ${OPENAI_API_KEY}  # 从环境变量读取
+    supports_vision: false
+    supports_tools: true
+    temperature: 0.7
+
+  - name: gpt-3.5
+    provider: openai
+    model: gpt-3.5-turbo
+    api_key: ${OPENAI_API_KEY}
+    supports_vision: false
+    supports_tools: true
+    temperature: 0.7
+
+default_model: gpt-4
+
+# 沙箱配置
+sandbox_enabled: true
+sandbox_work_dir: work
+
+# 记忆配置
+memory_enabled: true
+memory_max_messages: 100
+
+# 工具配置
+tools_enabled: true

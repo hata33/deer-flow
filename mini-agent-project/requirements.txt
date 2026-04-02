@@ -1,0 +1,16 @@
+# Mini Agent 依赖
+
+# 核心依赖
+pydantic>=2.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# LangChain
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-openai>=0.0.5
+langchain-anthropic>=0.1.0
+
+# 可选依赖
+# langchain-google-genai  # Gemini 支持
+# langchain-community     # 社区集成
