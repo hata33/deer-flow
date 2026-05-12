@@ -1,100 +1,102 @@
-# DeerFlow - Unified Development Environment
+# DeerFlow - 统一开发环境
 
 .PHONY: help config config-upgrade check install dev dev-daemon start stop up down clean docker-init docker-start docker-stop docker-logs docker-logs-frontend docker-logs-gateway
 
 PYTHON ?= python
 BASH ?= bash
 
-# Detect OS for Windows compatibility
+# 检测操作系统以兼容 Windows
 ifeq ($(OS),Windows_NT)
     SHELL := cmd.exe
 endif
 
 help:
-	@echo "DeerFlow Development Commands:"
-	@echo "  make config          - Generate local config files (aborts if config already exists)"
-	@echo "  make config-upgrade  - Merge new fields from config.example.yaml into config.yaml"
-	@echo "  make check           - Check if all required tools are installed"
-	@echo "  make install         - Install all dependencies (frontend + backend)"
-	@echo "  make setup-sandbox   - Pre-pull sandbox container image (recommended)"
-	@echo "  make dev             - Start all services in development mode (with hot-reloading)"
-	@echo "  make dev-daemon      - Start all services in background (daemon mode)"
-	@echo "  make start           - Start all services in production mode (optimized, no hot-reloading)"
-	@echo "  make stop            - Stop all running services"
-	@echo "  make clean           - Clean up processes and temporary files"
+	@echo "DeerFlow 开发命令："
+	@echo "  make config          - 生成本地配置文件（如配置已存在则中止）"
+	@echo "  make config-upgrade  - 将 config.example.yaml 的新字段合并到 config.yaml"
+	@echo "  make check           - 检查所有必需工具是否已安装"
+	@echo "  make install         - 安装所有依赖（前端 + 后端）"
+	@echo "  make setup-sandbox   - 预拉取沙箱容器镜像（推荐）"
+	@echo "  make dev             - 以开发模式启动所有服务（支持热重载）"
+	@echo "  make dev-daemon      - 以守护进程模式启动所有服务（后台运行）"
+	@echo "  make start           - 以生产模式启动所有服务（优化，无热重载）"
+	@echo "  make stop            - 停止所有运行中的服务"
+	@echo "  make clean           - 清理进程和临时文件"
 	@echo ""
-	@echo "Docker Production Commands:"
-	@echo "  make up              - Build and start production Docker services (localhost:2026)"
-	@echo "  make down            - Stop and remove production Docker containers"
+	@echo "Docker 生产环境命令："
+	@echo "  make up              - 构建并启动生产 Docker 服务（localhost:2026）"
+	@echo "  make down            - 停止并移除生产 Docker 容器"
 	@echo ""
-	@echo "Docker Development Commands:"
-	@echo "  make docker-init     - Pull the sandbox image"
-	@echo "  make docker-start    - Start Docker services (mode-aware from config.yaml, localhost:2026)"
-	@echo "  make docker-stop     - Stop Docker development services"
-	@echo "  make docker-logs     - View Docker development logs"
-	@echo "  make docker-logs-frontend - View Docker frontend logs"
-	@echo "  make docker-logs-gateway - View Docker gateway logs"
+	@echo "Docker 开发环境命令："
+	@echo "  make docker-init     - 拉取沙箱镜像"
+	@echo "  make docker-start    - 启动 Docker 开发服务（根据 config.yaml 自动识别模式，localhost:2026）"
+	@echo "  make docker-stop     - 停止 Docker 开发服务"
+	@echo "  make docker-logs     - 查看 Docker 开发日志"
+	@echo "  make docker-logs-frontend - 查看 Docker 前端日志"
+	@echo "  make docker-logs-gateway - 查看 Docker 网关日志"
 
+# 生成本地配置文件
 config:
 	@$(PYTHON) ./scripts/configure.py
 
+# 升级配置文件（合并新字段）
 config-upgrade:
 	@./scripts/config-upgrade.sh
 
-# Check required tools
+# 检查必需工具
 check:
 	@$(PYTHON) ./scripts/check.py
 
-# Install all dependencies
+# 安装所有依赖
 install:
-	@echo "Installing backend dependencies..."
+	@echo "正在安装后端依赖..."
 	@cd backend && uv sync
-	@echo "Installing frontend dependencies..."
+	@echo "正在安装前端依赖..."
 	@cd frontend && pnpm install
-	@echo "✓ All dependencies installed"
+	@echo "✓ 所有依赖安装完成"
 	@echo ""
 	@echo "=========================================="
-	@echo "  Optional: Pre-pull Sandbox Image"
+	@echo "  可选：预拉取沙箱镜像"
 	@echo "=========================================="
 	@echo ""
-	@echo "If you plan to use Docker/Container-based sandbox, you can pre-pull the image:"
+	@echo "如果你计划使用基于 Docker/Container 的沙箱，可以预拉取镜像："
 	@echo "  make setup-sandbox"
 	@echo ""
 
-# Pre-pull sandbox Docker image (optional but recommended)
+# 预拉取沙箱 Docker 镜像（可选但推荐）
 setup-sandbox:
 	@echo "=========================================="
-	@echo "  Pre-pulling Sandbox Container Image"
+	@echo "  预拉取沙箱容器镜像"
 	@echo "=========================================="
 	@echo ""
 	@IMAGE=$$(grep -A 20 "# sandbox:" config.yaml 2>/dev/null | grep "image:" | awk '{print $$2}' | head -1); \
 	if [ -z "$$IMAGE" ]; then \
 		IMAGE="enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest"; \
-		echo "Using default image: $$IMAGE"; \
+		echo "使用默认镜像：$$IMAGE"; \
 	else \
-		echo "Using configured image: $$IMAGE"; \
+		echo "使用配置中的镜像：$$IMAGE"; \
 	fi; \
 	echo ""; \
 	if command -v container >/dev/null 2>&1 && [ "$$(uname)" = "Darwin" ]; then \
-		echo "Detected Apple Container on macOS, pulling image..."; \
-		container pull "$$IMAGE" || echo "⚠ Apple Container pull failed, will try Docker"; \
+		echo "检测到 macOS 上的 Apple Container，正在拉取镜像..."; \
+		container pull "$$IMAGE" || echo "⚠ Apple Container 拉取失败，将尝试 Docker"; \
 	fi; \
 	if command -v docker >/dev/null 2>&1; then \
-		echo "Pulling image using Docker..."; \
+		echo "正在使用 Docker 拉取镜像..."; \
 		if docker pull "$$IMAGE"; then \
 			echo ""; \
-			echo "✓ Sandbox image pulled successfully"; \
+			echo "✓ 沙箱镜像拉取成功"; \
 		else \
 			echo ""; \
-			echo "⚠ Failed to pull sandbox image (this is OK for local sandbox mode)"; \
+			echo "⚠ 沙箱镜像拉取失败（本地沙箱模式下可忽略）"; \
 		fi; \
 	else \
-		echo "✗ Neither Docker nor Apple Container is available"; \
-		echo "  Please install Docker: https://docs.docker.com/get-docker/"; \
+		echo "✗ Docker 和 Apple Container 均不可用"; \
+		echo "  请安装 Docker：https://docs.docker.com/get-docker/"; \
 		exit 1; \
 	fi
 
-# Start all services in development mode (with hot-reloading)
+# 以开发模式启动所有服务（支持热重载）
 dev:
 ifeq ($(OS),Windows_NT)
 	@call scripts\run-with-git-bash.cmd ./scripts/serve.sh --dev
@@ -102,7 +104,7 @@ else
 	@./scripts/serve.sh --dev
 endif
 
-# Start all services in production mode (with optimizations)
+# 以生产模式启动所有服务（优化，无热重载）
 start:
 ifeq ($(OS),Windows_NT)
 	@call scripts\run-with-git-bash.cmd ./scripts/serve.sh --prod
@@ -110,68 +112,70 @@ else
 	@./scripts/serve.sh --prod
 endif
 
-# Start all services in daemon mode (background)
+# 以守护进程模式启动所有服务（后台运行）
 dev-daemon:
 	@./scripts/start-daemon.sh
 
-# Stop all services
+# 停止所有服务
 stop:
-	@echo "Stopping all services..."
+	@echo "正在停止所有服务..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
 	@-pkill -f "uvicorn app.gateway.app:app" 2>/dev/null || true
 	@-pkill -f "next dev" 2>/dev/null || true
 	@-pkill -f "next start" 2>/dev/null || true
 	@-pkill -f "next-server" 2>/dev/null || true
 	@-pkill -f "next-server" 2>/dev/null || true
-	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
+	@nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
 	@sleep 1
 	@-pkill -9 nginx 2>/dev/null || true
-	@echo "Cleaning up sandbox containers..."
+	@echo "正在清理沙箱容器..."
 	@-./scripts/cleanup-containers.sh deer-flow-sandbox 2>/dev/null || true
-	@echo "✓ All services stopped"
+	@echo "✓ 所有服务已停止"
 
-# Clean up
+# 清理
 clean: stop
-	@echo "Cleaning up..."
+	@echo "正在清理..."
 	@-rm -rf backend/.deer-flow 2>/dev/null || true
 	@-rm -rf backend/.langgraph_api 2>/dev/null || true
 	@-rm -rf logs/*.log 2>/dev/null || true
-	@echo "✓ Cleanup complete"
+	@echo "✓ 清理完成"
 
 # ==========================================
-# Docker Development Commands
+# Docker 开发环境命令
 # ==========================================
 
-# Initialize Docker containers and install dependencies
+# 初始化 Docker 容器并安装依赖
 docker-init:
 	@./scripts/docker.sh init
 
-# Start Docker development environment
+# 启动 Docker 开发环境
 docker-start:
 	@./scripts/docker.sh start
 
-# Stop Docker development environment
+# 停止 Docker 开发环境
 docker-stop:
 	@./scripts/docker.sh stop
 
-# View Docker development logs
+# 查看 Docker 开发日志
 docker-logs:
 	@./scripts/docker.sh logs
 
-# View Docker development logs
+# 查看 Docker 前端日志
 docker-logs-frontend:
 	@./scripts/docker.sh logs --frontend
+
+# 查看 Docker 网关日志
 docker-logs-gateway:
 	@./scripts/docker.sh logs --gateway
 
 # ==========================================
-# Production Docker Commands
+# Docker 生产环境命令
 # ==========================================
 
-# Build and start production services
+# 构建并启动生产服务
 up:
 	@./scripts/deploy.sh
 
-# Stop and remove production containers
+# 停止并移除生产容器
 down:
 	@./scripts/deploy.sh down
