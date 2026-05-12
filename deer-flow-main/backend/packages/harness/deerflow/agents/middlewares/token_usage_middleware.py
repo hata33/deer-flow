@@ -1,4 +1,4 @@
-"""Middleware for logging LLM token usage."""
+"""LLM token 使用量日志中间件。"""
 
 import logging
 from typing import override
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class TokenUsageMiddleware(AgentMiddleware):
-    """Logs token usage from model response usage_metadata."""
+    """记录模型响应 usage_metadata 中的 token 使用量。"""
 
     @override
     def after_model(self, state: AgentState, runtime: Runtime) -> dict | None:

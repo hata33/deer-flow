@@ -1,4 +1,4 @@
-"""SandboxAuditMiddleware - bash command security auditing."""
+"""SandboxAuditMiddleware - bash 命令安全审计中间件。"""
 
 import json
 import logging
@@ -18,10 +18,10 @@ from deerflow.agents.thread_state import ThreadState
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Command classification rules
+# 命令分类规则
 # ---------------------------------------------------------------------------
 
-# Each pattern is compiled once at import time.
+# 每个模式在导入时编译一次。
 _HIGH_RISK_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"rm\s+-[^\s]*r[^\s]*\s+(/\*?|~/?\*?|/home\b|/root\b)\s*$"),  # rm -rf / /* ~ /home /root
     re.compile(r"(curl|wget).+\|\s*(ba)?sh"),  # curl|sh, wget|sh
@@ -40,15 +40,15 @@ _MEDIUM_RISK_PATTERNS: list[re.Pattern[str]] = [
 
 
 def _classify_command(command: str) -> str:
-    """Return 'block', 'warn', or 'pass'."""
-    # Normalize for matching (collapse whitespace)
+    """返回 'block'、'warn' 或 'pass'。"""
+    # 标准化匹配（折叠空白字符）
     normalized = " ".join(command.split())
 
     for pattern in _HIGH_RISK_PATTERNS:
         if pattern.search(normalized):
             return "block"
 
-    # Also try shlex-parsed tokens for high-risk detection
+    # 也尝试使用 shlex 解析的 token 进行高风险检测
     try:
         tokens = shlex.split(command)
         joined = " ".join(tokens)
@@ -56,7 +56,7 @@ def _classify_command(command: str) -> str:
             if pattern.search(joined):
                 return "block"
     except ValueError:
-        # shlex.split fails on unclosed quotes — treat as suspicious
+        # shlex.split 在未闭合引号时会失败——视为可疑
         return "block"
 
     for pattern in _MEDIUM_RISK_PATTERNS:
@@ -67,35 +67,34 @@ def _classify_command(command: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Middleware
+# 中间件
 # ---------------------------------------------------------------------------
 
 
 class SandboxAuditMiddleware(AgentMiddleware[ThreadState]):
-    """Bash command security auditing middleware.
+    """bash 命令安全审计中间件。
 
-    For every ``bash`` tool call:
-    1. **Command classification**: regex + shlex analysis grades commands as
-       high-risk (block), medium-risk (warn), or safe (pass).
-    2. **Audit log**: every bash call is recorded as a structured JSON entry
-       via the standard logger (visible in langgraph.log).
+    对于每个 ``bash`` 工具调用：
+    1. **命令分类**：通过正则 + shlex 分析将命令分为
+       高风险（阻止）、中风险（警告）或安全（通过）。
+    2. **审计日志**：每次 bash 调用都通过标准日志记录器记录为结构化 JSON 条目
+       （可在 langgraph.log 中查看）。
 
-    High-risk commands (e.g. ``rm -rf /``, ``curl url | bash``) are blocked:
-    the handler is not called and an error ``ToolMessage`` is returned so the
-    agent loop can continue gracefully.
+    高风险命令（如 ``rm -rf /``、``curl url | bash``）会被阻止：
+    不调用处理程序，而是返回错误 ``ToolMessage``，使智能体循环可以优雅地继续。
 
-    Medium-risk commands (e.g. ``pip install``, ``chmod 777``) are executed
-    normally; a warning is appended to the tool result so the LLM is aware.
+    中风险命令（如 ``pip install``、``chmod 777``）会正常执行；
+    但会在工具结果中追加警告，以便 LLM 知晓。
     """
 
     state_schema = ThreadState
 
     # ------------------------------------------------------------------
-    # Helpers
+    # 辅助方法
     # ------------------------------------------------------------------
 
     def _get_thread_id(self, request: ToolCallRequest) -> str | None:
-        runtime = request.runtime  # ToolRuntime; may be None-like in tests
+        runtime = request.runtime  # ToolRuntime；在测试中可能为 None
         if runtime is None:
             return None
         ctx = getattr(runtime, "context", None) or {}
@@ -124,7 +123,7 @@ class SandboxAuditMiddleware(AgentMiddleware[ThreadState]):
         )
 
     def _append_warn_to_result(self, result: ToolMessage | Command, command: str) -> ToolMessage | Command:
-        """Append a warning note to the tool result for medium-risk commands."""
+        """为中风险命令在工具结果中追加警告说明。"""
         if not isinstance(result, ToolMessage):
             return result
         warning = f"\n\n⚠️ Warning: `{command}` is a medium-risk command that may modify the runtime environment."
@@ -140,22 +139,22 @@ class SandboxAuditMiddleware(AgentMiddleware[ThreadState]):
         )
 
     # ------------------------------------------------------------------
-    # Core logic (shared between sync and async paths)
+    # 核心逻辑（同步和异步路径共享）
     # ------------------------------------------------------------------
 
     def _pre_process(self, request: ToolCallRequest) -> tuple[str, str | None, str]:
         """
-        Returns (command, thread_id, verdict).
-        verdict is 'block', 'warn', or 'pass'.
+        返回 (command, thread_id, verdict)。
+        verdict 为 'block'、'warn' 或 'pass'。
         """
         args = request.tool_call.get("args", {})
         command: str = args.get("command", "")
         thread_id = self._get_thread_id(request)
 
-        # ① classify command
+        # ① 分类命令
         verdict = _classify_command(command)
 
-        # ② audit log
+        # ② 审计日志
         self._write_audit(thread_id, command, verdict)
 
         if verdict == "block":
@@ -166,7 +165,7 @@ class SandboxAuditMiddleware(AgentMiddleware[ThreadState]):
         return command, thread_id, verdict
 
     # ------------------------------------------------------------------
-    # wrap_tool_call hooks
+    # wrap_tool_call 钩子
     # ------------------------------------------------------------------
 
     @override

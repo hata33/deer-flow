@@ -1,4 +1,7 @@
-"""Prompt templates for memory update and injection."""
+"""记忆更新和注入的提示词模板。
+
+包含记忆更新提示词、事实提取提示词、记忆格式化和对话格式化等功能。
+"""
 
 import math
 import re
@@ -146,14 +149,14 @@ Return ONLY valid JSON."""
 
 
 def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
-    """Count tokens in text using tiktoken.
+    """使用 tiktoken 计算文本的 token 数量。
 
     Args:
-        text: The text to count tokens for.
-        encoding_name: The encoding to use (default: cl100k_base for GPT-4/3.5).
+        text: 要计算 token 的文本。
+        encoding_name: 使用的编码（默认：cl100k_base，适用于 GPT-4/3.5）。
 
     Returns:
-        The number of tokens in the text.
+        文本中的 token 数量。
     """
     if not TIKTOKEN_AVAILABLE:
         # Fallback to character-based estimation if tiktoken is not available
@@ -168,11 +171,10 @@ def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
 
 
 def _coerce_confidence(value: Any, default: float = 0.0) -> float:
-    """Coerce a confidence-like value to a bounded float in [0, 1].
+    """将类置信度值强制转换为 [0, 1] 范围内的浮点数。
 
-    Non-finite values (NaN, inf, -inf) are treated as invalid and fall back
-    to the default before clamping, preventing them from dominating ranking.
-    The ``default`` parameter is assumed to be a finite value.
+    非有限值（NaN、inf、-inf）被视为无效值并回退到默认值后再截断，
+    防止它们主导排序。假设 default 参数为有限值。
     """
     try:
         confidence = float(value)
@@ -184,14 +186,14 @@ def _coerce_confidence(value: Any, default: float = 0.0) -> float:
 
 
 def format_memory_for_injection(memory_data: dict[str, Any], max_tokens: int = 2000) -> str:
-    """Format memory data for injection into system prompt.
+    """格式化记忆数据用于注入到系统提示词中。
 
     Args:
-        memory_data: The memory data dictionary.
-        max_tokens: Maximum tokens to use (counted via tiktoken for accuracy).
+        memory_data: 记忆数据字典。
+        max_tokens: 最大 token 数（通过 tiktoken 精确计算）。
 
     Returns:
-        Formatted memory string for system prompt injection.
+        用于系统提示词注入的格式化记忆字符串。
     """
     if not memory_data:
         return ""
@@ -295,13 +297,13 @@ def format_memory_for_injection(memory_data: dict[str, Any], max_tokens: int = 2
 
 
 def format_conversation_for_update(messages: list[Any]) -> str:
-    """Format conversation messages for memory update prompt.
+    """格式化对话消息用于记忆更新提示词。
 
     Args:
-        messages: List of conversation messages.
+        messages: 对话消息列表。
 
     Returns:
-        Formatted conversation string.
+        格式化后的对话字符串。
     """
     lines = []
     for msg in messages:

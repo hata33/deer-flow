@@ -1,18 +1,17 @@
-"""Async checkpointer factory.
+"""异步检查点工厂。
 
-Provides an **async context manager** for long-running async servers that need
-proper resource cleanup.
+为需要正确资源清理的长时间运行异步服务器提供异步上下文管理器。
 
-Supported backends: memory, sqlite, postgres.
+支持的后端：内存（memory）、SQLite、PostgreSQL。
 
-Usage (e.g. FastAPI lifespan)::
+用法（如 FastAPI 生命周期）::
 
     from deerflow.agents.checkpointer.async_provider import make_checkpointer
 
     async with make_checkpointer() as checkpointer:
-        app.state.checkpointer = checkpointer  # InMemorySaver if not configured
+        app.state.checkpointer = checkpointer  # 未配置时使用 InMemorySaver
 
-For sync usage see :mod:`deerflow.agents.checkpointer.provider`.
+同步用法见 :mod:`deerflow.agents.checkpointer.provider`。
 """
 
 from __future__ import annotations
@@ -34,13 +33,13 @@ from deerflow.runtime.store._sqlite_utils import ensure_sqlite_parent_dir, resol
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Async factory
+# 异步工厂
 # ---------------------------------------------------------------------------
 
 
 @contextlib.asynccontextmanager
 async def _async_checkpointer(config) -> AsyncIterator[Checkpointer]:
-    """Async context manager that constructs and tears down a checkpointer."""
+    """构造并管理检查点生命周期的异步上下文管理器。"""
     if config.type == "memory":
         from langgraph.checkpoint.memory import InMemorySaver
 
@@ -78,19 +77,20 @@ async def _async_checkpointer(config) -> AsyncIterator[Checkpointer]:
 
 
 # ---------------------------------------------------------------------------
-# Public async context manager
+# 公共异步上下文管理器
 # ---------------------------------------------------------------------------
 
 
 @contextlib.asynccontextmanager
 async def make_checkpointer() -> AsyncIterator[Checkpointer]:
-    """Async context manager that yields a checkpointer for the caller's lifetime.
-    Resources are opened on enter and closed on exit — no global state::
+    """异步上下文管理器，在调用者生命周期内产出检查点。
+
+    进入时打开资源，退出时关闭——无全局状态::
 
         async with make_checkpointer() as checkpointer:
             app.state.checkpointer = checkpointer
 
-    Yields an ``InMemorySaver`` when no checkpointer is configured in *config.yaml*.
+    当 config.yaml 中未配置检查点时，产出 InMemorySaver。
     """
 
     config = get_app_config()

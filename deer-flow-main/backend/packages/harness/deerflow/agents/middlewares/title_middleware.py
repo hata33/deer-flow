@@ -1,4 +1,4 @@
-"""Middleware for automatic thread title generation."""
+"""自动线程标题生成中间件。"""
 
 import logging
 from typing import NotRequired, override
@@ -14,13 +14,13 @@ logger = logging.getLogger(__name__)
 
 
 class TitleMiddlewareState(AgentState):
-    """Compatible with the `ThreadState` schema."""
+    """与 `ThreadState` 模式兼容。"""
 
     title: NotRequired[str | None]
 
 
 class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
-    """Automatically generate a title for the thread after the first user message."""
+    """在第一条用户消息后自动生成线程标题。"""
 
     state_schema = TitleMiddlewareState
 
@@ -44,7 +44,7 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         return ""
 
     def _should_generate_title(self, state: TitleMiddlewareState) -> bool:
-        """Check if we should generate a title for this thread."""
+        """检查是否应该为此线程生成标题。"""
         config = get_title_config()
         if not config.enabled:
             return False
@@ -66,9 +66,9 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         return len(user_messages) == 1 and len(assistant_messages) >= 1
 
     def _build_title_prompt(self, state: TitleMiddlewareState) -> tuple[str, str]:
-        """Extract user/assistant messages and build the title prompt.
+        """提取用户/助手消息并构建标题提示词。
 
-        Returns (prompt_string, user_msg) so callers can use user_msg as fallback.
+        返回 (prompt_string, user_msg)，调用者可将 user_msg 作为回退使用。
         """
         config = get_title_config()
         messages = state.get("messages", [])
@@ -87,7 +87,7 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         return prompt, user_msg
 
     def _parse_title(self, content: object) -> str:
-        """Normalize model output into a clean title string."""
+        """将模型输出标准化为干净的标题字符串。"""
         config = get_title_config()
         title_content = self._normalize_content(content)
         title = title_content.strip().strip('"').strip("'")
@@ -101,7 +101,7 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         return user_msg if user_msg else "New Conversation"
 
     def _generate_title_result(self, state: TitleMiddlewareState) -> dict | None:
-        """Synchronously generate a title. Returns state update or None."""
+        """同步生成标题。返回状态更新或 None。"""
         if not self._should_generate_title(state):
             return None
 
@@ -121,7 +121,7 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         return {"title": title}
 
     async def _agenerate_title_result(self, state: TitleMiddlewareState) -> dict | None:
-        """Asynchronously generate a title. Returns state update or None."""
+        """异步生成标题。返回状态更新或 None。"""
         if not self._should_generate_title(state):
             return None
 

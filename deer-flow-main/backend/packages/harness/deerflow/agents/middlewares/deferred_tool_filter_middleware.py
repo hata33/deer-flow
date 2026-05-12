@@ -1,12 +1,11 @@
-"""Middleware to filter deferred tool schemas from model binding.
+"""用于从模型绑定中过滤延迟工具模式的中间件。
 
-When tool_search is enabled, MCP tools are registered in the DeferredToolRegistry
-and passed to ToolNode for execution, but their schemas should NOT be sent to the
-LLM via bind_tools (that's the whole point of deferral — saving context tokens).
+当启用 tool_search 时，MCP 工具注册到 DeferredToolRegistry 并传递给 ToolNode 执行，
+但其模式不应通过 bind_tools 发送给 LLM（这就是延迟的全部意义——节省上下文 token）。
 
-This middleware intercepts wrap_model_call and removes deferred tools from
-request.tools so that model.bind_tools only receives active tool schemas.
-The agent discovers deferred tools at runtime via the tool_search tool.
+此中间件拦截 wrap_model_call 并从 request.tools 中移除延迟工具，
+使 model.bind_tools 只接收活跃的工具模式。
+智能体在运行时通过 tool_search 工具发现延迟工具。
 """
 
 import logging
@@ -21,11 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 class DeferredToolFilterMiddleware(AgentMiddleware[AgentState]):
-    """Remove deferred tools from request.tools before model binding.
+    """在模型绑定前从 request.tools 中移除延迟工具。
 
-    ToolNode still holds all tools (including deferred) for execution routing,
-    but the LLM only sees active tool schemas — deferred tools are discoverable
-    via tool_search at runtime.
+    ToolNode 仍持有所有工具（包括延迟工具）用于执行路由，
+    但 LLM 只能看到活跃的工具模式——延迟工具可在运行时通过 tool_search 发现。
     """
 
     def _filter_tools(self, request: ModelRequest) -> ModelRequest:

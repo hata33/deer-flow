@@ -1,15 +1,12 @@
-"""Middleware to detect and break repetitive tool call loops.
+"""用于检测和中断重复工具调用循环的中间件。
 
-P0 safety: prevents the agent from calling the same tool with the same
-arguments indefinitely until the recursion limit kills the run.
+P0 安全保障：防止智能体无限期使用相同参数调用相同工具，直到递归限制终止运行。
 
-Detection strategy:
-  1. After each model response, hash the tool calls (name + args).
-  2. Track recent hashes in a sliding window.
-  3. If the same hash appears >= warn_threshold times, inject a
-     "you are repeating yourself — wrap up" system message (once per hash).
-  4. If it appears >= hard_limit times, strip all tool_calls from the
-     response so the agent is forced to produce a final text answer.
+检测策略：
+  1. 每次模型响应后，对工具调用（name + args）进行哈希。
+  2. 在滑动窗口中跟踪最近的哈希值。
+  3. 如果同一哈希出现 >= warn_threshold 次，注入"你在重复自己——收尾"的系统消息（每个哈希仅一次）。
+  4. 如果出现 >= hard_limit 次，从响应中剥离所有 tool_calls，强制智能体生成最终文本答案。
 """
 
 import hashlib
@@ -26,20 +23,20 @@ from langgraph.runtime import Runtime
 
 logger = logging.getLogger(__name__)
 
-# Defaults — can be overridden via constructor
-_DEFAULT_WARN_THRESHOLD = 3  # inject warning after 3 identical calls
-_DEFAULT_HARD_LIMIT = 5  # force-stop after 5 identical calls
-_DEFAULT_WINDOW_SIZE = 20  # track last N tool calls
-_DEFAULT_MAX_TRACKED_THREADS = 100  # LRU eviction limit
+# 默认值——可通过构造函数覆盖
+_DEFAULT_WARN_THRESHOLD = 3  # 3 次相同调用后注入警告
+_DEFAULT_HARD_LIMIT = 5  # 5 次相同调用后强制停止
+_DEFAULT_WINDOW_SIZE = 20  # 跟踪最近 N 次工具调用
+_DEFAULT_MAX_TRACKED_THREADS = 100  # LRU 驱逐限制
 
 
 def _hash_tool_calls(tool_calls: list[dict]) -> str:
-    """Deterministic hash of a set of tool calls (name + args).
+    """对一组工具调用（name + args）生成确定性哈希。
 
-    This is intended to be order-independent: the same multiset of tool calls
-    should always produce the same hash, regardless of their input order.
+    此哈希与顺序无关：相同的多集工具调用应始终产生相同的哈希值，
+    无论输入顺序如何。
     """
-    # First normalize each tool call to a minimal (name, args) structure.
+    # 首先将每个工具调用标准化为最小的 (name, args) 结构。
     normalized: list[dict] = []
     for tc in tool_calls:
         normalized.append(
@@ -49,8 +46,7 @@ def _hash_tool_calls(tool_calls: list[dict]) -> str:
             }
         )
 
-    # Sort by both name and a deterministic serialization of args so that
-    # permutations of the same multiset of calls yield the same ordering.
+    # 按 name 和 args 的确定性序列化排序，使得相同多集的排列产生相同的顺序。
     normalized.sort(
         key=lambda tc: (
             tc["name"],
@@ -67,17 +63,13 @@ _HARD_STOP_MSG = "[FORCED STOP] Repeated tool calls exceeded the safety limit. P
 
 
 class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
-    """Detects and breaks repetitive tool call loops.
+    """检测并中断重复的工具调用循环。
 
-    Args:
-        warn_threshold: Number of identical tool call sets before injecting
-            a warning message. Default: 3.
-        hard_limit: Number of identical tool call sets before stripping
-            tool_calls entirely. Default: 5.
-        window_size: Size of the sliding window for tracking calls.
-            Default: 20.
-        max_tracked_threads: Maximum number of threads to track before
-            evicting the least recently used. Default: 100.
+    参数：
+        warn_threshold: 注入警告消息前允许的相同工具调用集次数。默认值：3。
+        hard_limit: 完全剥离 tool_calls 前允许的相同工具调用集次数。默认值：5。
+        window_size: 跟踪调用的滑动窗口大小。默认值：20。
+        max_tracked_threads: 在驱逐最近最少使用的线程前最多跟踪的线程数。默认值：100。
     """
 
     def __init__(
@@ -93,21 +85,21 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         self.window_size = window_size
         self.max_tracked_threads = max_tracked_threads
         self._lock = threading.Lock()
-        # Per-thread tracking using OrderedDict for LRU eviction
+        # 使用 OrderedDict 进行按线程跟踪，支持 LRU 驱逐
         self._history: OrderedDict[str, list[str]] = OrderedDict()
         self._warned: dict[str, set[str]] = defaultdict(set)
 
     def _get_thread_id(self, runtime: Runtime) -> str:
-        """Extract thread_id from runtime context for per-thread tracking."""
+        """从运行时上下文中提取 thread_id，用于按线程跟踪。"""
         thread_id = runtime.context.get("thread_id") if runtime.context else None
         if thread_id:
             return thread_id
         return "default"
 
     def _evict_if_needed(self) -> None:
-        """Evict least recently used threads if over the limit.
+        """在超过限制时驱逐最近最少使用的线程。
 
-        Must be called while holding self._lock.
+        必须在持有 self._lock 的情况下调用。
         """
         while len(self._history) > self.max_tracked_threads:
             evicted_id, _ = self._history.popitem(last=False)
@@ -115,10 +107,10 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             logger.debug("Evicted loop tracking for thread %s (LRU)", evicted_id)
 
     def _track_and_check(self, state: AgentState, runtime: Runtime) -> tuple[str | None, bool]:
-        """Track tool calls and check for loops.
+        """跟踪工具调用并检测循环。
 
-        Returns:
-            (warning_message_or_none, should_hard_stop)
+        返回：
+            (警告消息或 None, 是否强制停止)
         """
         messages = state.get("messages", [])
         if not messages:
@@ -136,7 +128,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         call_hash = _hash_tool_calls(tool_calls)
 
         with self._lock:
-            # Touch / create entry (move to end for LRU)
+            # 触摸/创建条目（移到末尾以实现 LRU）
             if thread_id in self._history:
                 self._history.move_to_end(thread_id)
             else:
@@ -177,7 +169,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
                         },
                     )
                     return _WARNING_MSG, False
-                # Warning already injected for this hash — suppress
+                # 此哈希已注入过警告——抑制
                 return None, False
 
         return None, False
@@ -186,7 +178,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         warning, hard_stop = self._track_and_check(state, runtime)
 
         if hard_stop:
-            # Strip tool_calls from the last AIMessage to force text output
+            # 从最后一条 AIMessage 中剥离 tool_calls 以强制输出文本
             messages = state.get("messages", [])
             last_msg = messages[-1]
             stripped_msg = last_msg.model_copy(
@@ -198,12 +190,12 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             return {"messages": [stripped_msg]}
 
         if warning:
-            # Inject as HumanMessage instead of SystemMessage to avoid
-            # Anthropic's "multiple non-consecutive system messages" error.
-            # Anthropic models require system messages only at the start of
-            # the conversation; injecting one mid-conversation crashes
-            # langchain_anthropic's _format_messages(). HumanMessage works
-            # with all providers. See #1299.
+            # 注入为 HumanMessage 而非 SystemMessage，以避免
+            # Anthropic 的"多个非连续系统消息"错误。
+            # Anthropic 模型要求系统消息仅在对话开头出现；
+            # 在对话中间注入会导致 langchain_anthropic 的
+            # _format_messages() 崩溃。HumanMessage 适用于
+            # 所有提供者。参见 #1299。
             return {"messages": [HumanMessage(content=warning)]}
 
         return None
@@ -217,7 +209,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         return self._apply(state, runtime)
 
     def reset(self, thread_id: str | None = None) -> None:
-        """Clear tracking state. If thread_id given, clear only that thread."""
+        """清除跟踪状态。如果指定 thread_id，仅清除该线程。"""
         with self._lock:
             if thread_id:
                 self._history.pop(thread_id, None)

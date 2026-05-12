@@ -1,4 +1,8 @@
-"""Memory update queue with debounce mechanism."""
+"""带有防抖机制的记忆更新队列。
+
+收集会话上下文并在可配置的防抖周期后处理。
+在防抖窗口内收到的多个会话会批量处理。
+"""
 
 import logging
 import threading
@@ -14,20 +18,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ConversationContext:
-    """Context for a conversation to be processed for memory update."""
+    """待处理的记忆更新会话上下文。"""
 
-    thread_id: str
-    messages: list[Any]
-    timestamp: datetime = field(default_factory=datetime.utcnow)
-    agent_name: str | None = None
+    thread_id: str  # 线程 ID
+    messages: list[Any]  # 对话消息列表
+    timestamp: datetime = field(default_factory=datetime.utcnow)  # 时间戳
+    agent_name: str | None = None  # 智能体名称（按智能体存储记忆）
 
 
 class MemoryUpdateQueue:
-    """Queue for memory updates with debounce mechanism.
+    """带有防抖机制的记忆更新队列。
 
-    This queue collects conversation contexts and processes them after
-    a configurable debounce period. Multiple conversations received within
-    the debounce window are batched together.
+    此队列收集会话上下文，并在可配置的防抖期后处理它们。
+    在防抖窗口内收到的多个会话会批量处理。
     """
 
     def __init__(self):
@@ -38,12 +41,12 @@ class MemoryUpdateQueue:
         self._processing = False
 
     def add(self, thread_id: str, messages: list[Any], agent_name: str | None = None) -> None:
-        """Add a conversation to the update queue.
+        """添加会话到更新队列。
 
         Args:
-            thread_id: The thread ID.
-            messages: The conversation messages.
-            agent_name: If provided, memory is stored per-agent. If None, uses global memory.
+            thread_id: 线程 ID。
+            messages: 对话消息列表。
+            agent_name: 如果提供，按智能体存储记忆；如果为 None，使用全局记忆。
         """
         config = get_memory_config()
         if not config.enabled:
@@ -67,7 +70,7 @@ class MemoryUpdateQueue:
         logger.info("Memory update queued for thread %s, queue size: %d", thread_id, len(self._queue))
 
     def _reset_timer(self) -> None:
-        """Reset the debounce timer."""
+        """重置防抖计时器。"""
         config = get_memory_config()
 
         # Cancel existing timer if any
@@ -85,7 +88,7 @@ class MemoryUpdateQueue:
         logger.debug("Memory update timer set for %ss", config.debounce_seconds)
 
     def _process_queue(self) -> None:
-        """Process all queued conversation contexts."""
+        """处理队列中所有待处理的会话上下文。"""
         # Import here to avoid circular dependency
         from deerflow.agents.memory.updater import MemoryUpdater
 
@@ -132,10 +135,7 @@ class MemoryUpdateQueue:
                 self._processing = False
 
     def flush(self) -> None:
-        """Force immediate processing of the queue.
-
-        This is useful for testing or graceful shutdown.
-        """
+        """强制立即处理队列。在测试或优雅关闭时使用。"""
         with self._lock:
             if self._timer is not None:
                 self._timer.cancel()
@@ -144,10 +144,7 @@ class MemoryUpdateQueue:
         self._process_queue()
 
     def clear(self) -> None:
-        """Clear the queue without processing.
-
-        This is useful for testing.
-        """
+        """清空队列但不处理。在测试时使用。"""
         with self._lock:
             if self._timer is not None:
                 self._timer.cancel()
@@ -157,28 +154,24 @@ class MemoryUpdateQueue:
 
     @property
     def pending_count(self) -> int:
-        """Get the number of pending updates."""
+        """获取待处理更新的数量。"""
         with self._lock:
             return len(self._queue)
 
     @property
     def is_processing(self) -> bool:
-        """Check if the queue is currently being processed."""
+        """检查队列是否正在处理中。"""
         with self._lock:
             return self._processing
 
 
-# Global singleton instance
+# 全局单例实例
 _memory_queue: MemoryUpdateQueue | None = None
 _queue_lock = threading.Lock()
 
 
 def get_memory_queue() -> MemoryUpdateQueue:
-    """Get the global memory update queue singleton.
-
-    Returns:
-        The memory update queue instance.
-    """
+    """获取全局记忆更新队列单例。"""
     global _memory_queue
     with _queue_lock:
         if _memory_queue is None:
@@ -187,10 +180,7 @@ def get_memory_queue() -> MemoryUpdateQueue:
 
 
 def reset_memory_queue() -> None:
-    """Reset the global memory queue.
-
-    This is useful for testing.
-    """
+    """重置全局记忆队列。在测试时使用。"""
     global _memory_queue
     with _queue_lock:
         if _memory_queue is not None:

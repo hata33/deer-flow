@@ -1,4 +1,9 @@
-"""Middleware for memory mechanism."""
+"""记忆机制中间件。
+
+在智能体执行后将对话排队进行记忆更新，
+仅包含用户输入和最终助手响应（忽略工具调用），
+使用防抖机制批量处理多个更新。
+"""
 
 import logging
 import re
@@ -16,33 +21,32 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryMiddlewareState(AgentState):
-    """Compatible with the `ThreadState` schema."""
+    """与 `ThreadState` 模式兼容。"""
 
     pass
 
 
 def _filter_messages_for_memory(messages: list[Any]) -> list[Any]:
-    """Filter messages to keep only user inputs and final assistant responses.
+    """过滤消息，仅保留用户输入和最终助手响应。
 
-    This filters out:
-    - Tool messages (intermediate tool call results)
-    - AI messages with tool_calls (intermediate steps, not final responses)
-    - The <uploaded_files> block injected by UploadsMiddleware into human messages
-      (file paths are session-scoped and must not persist in long-term memory).
-      The user's actual question is preserved; only turns whose content is entirely
-      the upload block (nothing remains after stripping) are dropped along with
-      their paired assistant response.
+    过滤掉：
+    - 工具消息（中间工具调用结果）
+    - 带有 tool_calls 的 AI 消息（中间步骤，非最终响应）
+    - UploadsMiddleware 注入到 human 消息中的 <uploaded_files> 块
+      （文件路径是会话范围的，不应持久化到长期记忆中）。
+      用户的实际问题会被保留；只有内容完全是上传块（去除后无剩余）的轮次
+      才会连同其配对的助手响应一起被丢弃。
 
-    Only keeps:
-    - Human messages (with the ephemeral upload block removed)
-    - AI messages without tool_calls (final assistant responses), unless the
-      paired human turn was upload-only and had no real user text.
+    仅保留：
+    - Human 消息（已移除临时上传块）
+    - 不带 tool_calls 的 AI 消息（最终助手响应），除非配对的 human 轮次
+      仅包含上传且没有真实用户文本。
 
-    Args:
-        messages: List of all conversation messages.
+    参数：
+        messages: 所有对话消息的列表。
 
-    Returns:
-        Filtered list containing only user inputs and final assistant responses.
+    返回：
+        仅包含用户输入和最终助手响应的过滤列表。
     """
     _UPLOAD_BLOCK_RE = re.compile(r"<uploaded_files>[\s\S]*?</uploaded_files>\n*", re.IGNORECASE)
 
@@ -88,36 +92,36 @@ def _filter_messages_for_memory(messages: list[Any]) -> list[Any]:
 
 
 class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
-    """Middleware that queues conversation for memory update after agent execution.
+    """在智能体执行后将对话排队进行记忆更新的中间件。
 
-    This middleware:
-    1. After each agent execution, queues the conversation for memory update
-    2. Only includes user inputs and final assistant responses (ignores tool calls)
-    3. The queue uses debouncing to batch multiple updates together
-    4. Memory is updated asynchronously via LLM summarization
+    此中间件：
+    1. 在每次智能体执行后，将对话排队进行记忆更新
+    2. 仅包含用户输入和最终助手响应（忽略工具调用）
+    3. 队列使用防抖机制批量处理多个更新
+    4. 记忆通过 LLM 摘要异步更新
     """
 
     state_schema = MemoryMiddlewareState
 
     def __init__(self, agent_name: str | None = None):
-        """Initialize the MemoryMiddleware.
+        """初始化 MemoryMiddleware。
 
-        Args:
-            agent_name: If provided, memory is stored per-agent. If None, uses global memory.
+        参数：
+            agent_name: 如果提供，则按智能体存储记忆。如果为 None，则使用全局记忆。
         """
         super().__init__()
         self._agent_name = agent_name
 
     @override
     def after_agent(self, state: MemoryMiddlewareState, runtime: Runtime) -> dict | None:
-        """Queue conversation for memory update after agent completes.
+        """在智能体完成后将对话排队进行记忆更新。
 
-        Args:
-            state: The current agent state.
-            runtime: The runtime context.
+        参数：
+            state: 当前智能体状态。
+            runtime: 运行时上下文。
 
-        Returns:
-            None (no state changes needed from this middleware).
+        返回：
+            None（此中间件不需要状态变更）。
         """
         config = get_memory_config()
         if not config.enabled:

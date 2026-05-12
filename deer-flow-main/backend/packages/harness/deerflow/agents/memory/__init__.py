@@ -1,9 +1,9 @@
-"""Memory module for DeerFlow.
+"""DeerFlow 记忆模块。
 
-This module provides a global memory mechanism that:
-- Stores user context and conversation history in memory.json
-- Uses LLM to summarize and extract facts from conversations
-- Injects relevant memory into system prompts for personalized responses
+提供全局记忆机制：
+- 在 memory.json 中存储用户上下文和对话历史
+- 使用 LLM 从对话中提取摘要和事实
+- 将相关记忆注入到系统提示词中以实现个性化响应
 """
 
 from deerflow.agents.memory.prompt import (

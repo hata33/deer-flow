@@ -1,4 +1,4 @@
-"""Tool error handling middleware and shared runtime middleware builders."""
+"""工具错误处理中间件和共享运行时中间件构建器。"""
 
 import logging
 from collections.abc import Awaitable, Callable
@@ -17,7 +17,7 @@ _MISSING_TOOL_CALL_ID = "missing_tool_call_id"
 
 
 class ToolErrorHandlingMiddleware(AgentMiddleware[AgentState]):
-    """Convert tool exceptions into error ToolMessages so the run can continue."""
+    """将工具异常转换为错误 ToolMessages，使运行可以继续。"""
 
     def _build_error_message(self, request: ToolCallRequest, exc: Exception) -> ToolMessage:
         tool_name = str(request.tool_call.get("name") or "unknown_tool")
@@ -43,7 +43,7 @@ class ToolErrorHandlingMiddleware(AgentMiddleware[AgentState]):
         try:
             return handler(request)
         except GraphBubbleUp:
-            # Preserve LangGraph control-flow signals (interrupt/pause/resume).
+            # 保留 LangGraph 控制流信号（中断/暂停/恢复）。
             raise
         except Exception as exc:
             logger.exception("Tool execution failed (sync): name=%s id=%s", request.tool_call.get("name"), request.tool_call.get("id"))
@@ -58,7 +58,7 @@ class ToolErrorHandlingMiddleware(AgentMiddleware[AgentState]):
         try:
             return await handler(request)
         except GraphBubbleUp:
-            # Preserve LangGraph control-flow signals (interrupt/pause/resume).
+            # 保留 LangGraph 控制流信号（中断/暂停/恢复）。
             raise
         except Exception as exc:
             logger.exception("Tool execution failed (async): name=%s id=%s", request.tool_call.get("name"), request.tool_call.get("id"))
@@ -71,7 +71,7 @@ def _build_runtime_middlewares(
     include_dangling_tool_call_patch: bool,
     lazy_init: bool = True,
 ) -> list[AgentMiddleware]:
-    """Build shared base middlewares for agent execution."""
+    """构建智能体执行的共享基础中间件。"""
     from deerflow.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
     from deerflow.sandbox.middleware import SandboxMiddleware
 
@@ -90,7 +90,7 @@ def _build_runtime_middlewares(
 
         middlewares.append(DanglingToolCallMiddleware())
 
-    # Guardrail middleware (if configured)
+    # 护栏中间件（如果已配置）
     from deerflow.config.guardrails_config import get_guardrails_config
 
     guardrails_config = get_guardrails_config()
@@ -102,9 +102,9 @@ def _build_runtime_middlewares(
 
         provider_cls = resolve_variable(guardrails_config.provider.use)
         provider_kwargs = dict(guardrails_config.provider.config) if guardrails_config.provider.config else {}
-        # Pass framework hint if the provider accepts it (e.g. for config discovery).
-        # Built-in providers like AllowlistProvider don't need it, so only inject
-        # when the constructor accepts 'framework' or '**kwargs'.
+        # 如果提供者接受 framework 提示则传入（例如用于配置发现）。
+        # 内置提供者如 AllowlistProvider 不需要，因此仅在构造函数
+        # 接受 'framework' 或 '**kwargs' 时注入。
         if "framework" not in provider_kwargs:
             try:
                 sig = inspect.signature(provider_cls.__init__)
@@ -123,7 +123,7 @@ def _build_runtime_middlewares(
 
 
 def build_lead_runtime_middlewares(*, lazy_init: bool = True) -> list[AgentMiddleware]:
-    """Middlewares shared by lead agent runtime before lead-only middlewares."""
+    """主智能体运行时在主智能体专属中间件之前共享的中间件。"""
     return _build_runtime_middlewares(
         include_uploads=True,
         include_dangling_tool_call_patch=True,
@@ -132,7 +132,7 @@ def build_lead_runtime_middlewares(*, lazy_init: bool = True) -> list[AgentMiddl
 
 
 def build_subagent_runtime_middlewares(*, lazy_init: bool = True) -> list[AgentMiddleware]:
-    """Middlewares shared by subagent runtime before subagent-only middlewares."""
+    """子智能体运行时在子智能体专属中间件之前共享的中间件。"""
     return _build_runtime_middlewares(
         include_uploads=False,
         include_dangling_tool_call_patch=False,

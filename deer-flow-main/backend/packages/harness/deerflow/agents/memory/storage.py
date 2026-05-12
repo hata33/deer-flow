@@ -1,4 +1,8 @@
-"""Memory storage providers."""
+"""记忆存储提供者。
+
+提供抽象基类 MemoryStorage 和文件存储实现 FileMemoryStorage，
+支持按智能体的记忆文件存储与缓存。
+"""
 
 import abc
 import json
@@ -16,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_empty_memory() -> dict[str, Any]:
-    """Create an empty memory structure."""
+    """创建空的记忆结构。"""
     return {
         "version": "1.0",
         "lastUpdated": datetime.utcnow().isoformat() + "Z",
@@ -35,38 +39,38 @@ def create_empty_memory() -> dict[str, Any]:
 
 
 class MemoryStorage(abc.ABC):
-    """Abstract base class for memory storage providers."""
+    """记忆存储提供者的抽象基类。"""
 
     @abc.abstractmethod
     def load(self, agent_name: str | None = None) -> dict[str, Any]:
-        """Load memory data for the given agent."""
+        """加载指定智能体的记忆数据。"""
         pass
 
     @abc.abstractmethod
     def reload(self, agent_name: str | None = None) -> dict[str, Any]:
-        """Force reload memory data for the given agent."""
+        """强制重新加载指定智能体的记忆数据。"""
         pass
 
     @abc.abstractmethod
     def save(self, memory_data: dict[str, Any], agent_name: str | None = None) -> bool:
-        """Save memory data for the given agent."""
+        """保存指定智能体的记忆数据。"""
         pass
 
 
 class FileMemoryStorage(MemoryStorage):
-    """File-based memory storage provider."""
+    """基于文件的记忆存储提供者。"""
 
     def __init__(self):
-        """Initialize the file memory storage."""
-        # Per-agent memory cache: keyed by agent_name (None = global)
-        # Value: (memory_data, file_mtime)
+        """初始化文件记忆存储。"""
+        # 按智能体名称缓存的记忆：键为 agent_name（None = 全局）
+        # 值为 (memory_data, file_mtime) 元组
         self._memory_cache: dict[str | None, tuple[dict[str, Any], float | None]] = {}
 
     def _validate_agent_name(self, agent_name: str) -> None:
-        """Validate that the agent name is safe to use in filesystem paths.
+        """验证智能体名称在文件系统路径中是否安全。
 
-        Uses the repository's established AGENT_NAME_PATTERN to ensure consistency
-        across the codebase and prevent path traversal or other problematic characters.
+        使用代码库统一的 AGENT_NAME_PATTERN 确保一致性，
+        防止路径遍历或其他有问题的字符。
         """
         if not agent_name:
             raise ValueError("Agent name must be a non-empty string.")
@@ -74,7 +78,7 @@ class FileMemoryStorage(MemoryStorage):
             raise ValueError(f"Invalid agent name {agent_name!r}: names must match {AGENT_NAME_PATTERN.pattern}")
 
     def _get_memory_file_path(self, agent_name: str | None = None) -> Path:
-        """Get the path to the memory file."""
+        """获取记忆文件路径。"""
         if agent_name is not None:
             self._validate_agent_name(agent_name)
             return get_paths().agent_memory_file(agent_name)
@@ -86,7 +90,7 @@ class FileMemoryStorage(MemoryStorage):
         return get_paths().memory_file
 
     def _load_memory_from_file(self, agent_name: str | None = None) -> dict[str, Any]:
-        """Load memory data from file."""
+        """从文件加载记忆数据。"""
         file_path = self._get_memory_file_path(agent_name)
 
         if not file_path.exists():
@@ -101,7 +105,7 @@ class FileMemoryStorage(MemoryStorage):
             return create_empty_memory()
 
     def load(self, agent_name: str | None = None) -> dict[str, Any]:
-        """Load memory data (cached with file modification time check)."""
+        """加载记忆数据（带文件修改时间检查的缓存）。"""
         file_path = self._get_memory_file_path(agent_name)
 
         try:
@@ -119,7 +123,7 @@ class FileMemoryStorage(MemoryStorage):
         return cached[0]
 
     def reload(self, agent_name: str | None = None) -> dict[str, Any]:
-        """Reload memory data from file, forcing cache invalidation."""
+        """从文件重新加载记忆数据，强制使缓存失效。"""
         file_path = self._get_memory_file_path(agent_name)
         memory_data = self._load_memory_from_file(agent_name)
 
@@ -132,7 +136,7 @@ class FileMemoryStorage(MemoryStorage):
         return memory_data
 
     def save(self, memory_data: dict[str, Any], agent_name: str | None = None) -> bool:
-        """Save memory data to file and update cache."""
+        """保存记忆数据到文件并更新缓存。使用原子写入（临时文件+重命名）。"""
         file_path = self._get_memory_file_path(agent_name)
 
         try:
@@ -163,7 +167,7 @@ _storage_lock = threading.Lock()
 
 
 def get_memory_storage() -> MemoryStorage:
-    """Get the configured memory storage instance."""
+    """获取配置的记忆存储实例（单例）。"""
     global _storage_instance
     if _storage_instance is not None:
         return _storage_instance

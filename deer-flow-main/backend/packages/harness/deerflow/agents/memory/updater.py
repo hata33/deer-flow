@@ -1,4 +1,8 @@
-"""Memory updater for reading, writing, and updating memory data."""
+"""记忆更新器，负责读取、写入和更新记忆数据。
+
+通过 LLM 分析对话内容，提取用户上下文、偏好和事实，
+并以原子方式持久化到存储中。
+"""
 
 import json
 import logging
@@ -20,37 +24,37 @@ logger = logging.getLogger(__name__)
 
 
 def _create_empty_memory() -> dict[str, Any]:
-    """Backward-compatible wrapper around the storage-layer empty-memory factory."""
+    """向后兼容的空记忆创建包装器。"""
     return create_empty_memory()
 
 
 def _save_memory_to_file(memory_data: dict[str, Any], agent_name: str | None = None) -> bool:
-    """Backward-compatible wrapper around the configured memory storage save path."""
+    """向后兼容的记忆保存包装器。"""
     return get_memory_storage().save(memory_data, agent_name)
 
 
 def get_memory_data(agent_name: str | None = None) -> dict[str, Any]:
-    """Get the current memory data via storage provider."""
+    """通过存储提供者获取当前记忆数据。"""
     return get_memory_storage().load(agent_name)
 
 
 def reload_memory_data(agent_name: str | None = None) -> dict[str, Any]:
-    """Reload memory data via storage provider."""
+    """通过存储提供者重新加载记忆数据。"""
     return get_memory_storage().reload(agent_name)
 
 
 def import_memory_data(memory_data: dict[str, Any], agent_name: str | None = None) -> dict[str, Any]:
-    """Persist imported memory data via storage provider.
+    """通过存储提供者持久化导入的记忆数据。
 
     Args:
-        memory_data: Full memory payload to persist.
-        agent_name: If provided, imports into per-agent memory.
+        memory_data: 要持久化的完整记忆数据。
+        agent_name: 如果提供，导入到按智能体的记忆中。
 
     Returns:
-        The saved memory data after storage normalization.
+        存储标准化后的已保存记忆数据。
 
     Raises:
-        OSError: If persisting the imported memory fails.
+        OSError: 如果持久化导入的记忆失败。
     """
     storage = get_memory_storage()
     if not storage.save(memory_data, agent_name):
@@ -59,7 +63,7 @@ def import_memory_data(memory_data: dict[str, Any], agent_name: str | None = Non
 
 
 def clear_memory_data(agent_name: str | None = None) -> dict[str, Any]:
-    """Clear all stored memory data and persist an empty structure."""
+    """清除所有已存储的记忆数据并持久化空结构。"""
     cleared_memory = create_empty_memory()
     if not _save_memory_to_file(cleared_memory, agent_name):
         raise OSError("Failed to save cleared memory data")
@@ -67,7 +71,7 @@ def clear_memory_data(agent_name: str | None = None) -> dict[str, Any]:
 
 
 def _validate_confidence(confidence: float) -> float:
-    """Validate persisted fact confidence so stored JSON stays standards-compliant."""
+    """验证持久化的事实置信度，确保存储的 JSON 符合标准。"""
     if not math.isfinite(confidence) or confidence < 0 or confidence > 1:
         raise ValueError("confidence")
     return confidence
@@ -79,7 +83,7 @@ def create_memory_fact(
     confidence: float = 0.5,
     agent_name: str | None = None,
 ) -> dict[str, Any]:
-    """Create a new fact and persist the updated memory data."""
+    """创建新的事实并持久化更新后的记忆数据。"""
     normalized_content = content.strip()
     if not normalized_content:
         raise ValueError("content")
@@ -109,7 +113,7 @@ def create_memory_fact(
 
 
 def delete_memory_fact(fact_id: str, agent_name: str | None = None) -> dict[str, Any]:
-    """Delete a fact by its id and persist the updated memory data."""
+    """根据 ID 删除事实并持久化更新后的记忆数据。"""
     memory_data = get_memory_data(agent_name)
     facts = memory_data.get("facts", [])
     updated_facts = [fact for fact in facts if fact.get("id") != fact_id]
@@ -132,7 +136,7 @@ def update_memory_fact(
     confidence: float | None = None,
     agent_name: str | None = None,
 ) -> dict[str, Any]:
-    """Update an existing fact and persist the updated memory data."""
+    """更新已存在的事实并持久化更新后的记忆数据。"""
     memory_data = get_memory_data(agent_name)
     updated_memory = dict(memory_data)
     updated_facts: list[dict[str, Any]] = []
@@ -167,16 +171,14 @@ def update_memory_fact(
 
 
 def _extract_text(content: Any) -> str:
-    """Extract plain text from LLM response content (str or list of content blocks).
+    """从 LLM 响应内容中提取纯文本（支持字符串或内容块列表）。
 
-    Modern LLMs may return structured content as a list of blocks instead of a
-    plain string, e.g. [{"type": "text", "text": "..."}]. Using str() on such
-    content produces Python repr instead of the actual text, breaking JSON
-    parsing downstream.
+    现代 LLM 可能返回结构化内容块列表而非纯字符串，
+    例如 [{"type": "text", "text": "..."}]。对此类内容使用 str()
+    会产生 Python repr 而非实际文本，导致下游 JSON 解析失败。
 
-    String chunks are concatenated without separators to avoid corrupting
-    chunked JSON/text payloads. Dict-based text blocks are treated as full text
-    blocks and joined with newlines for readability.
+    字符串片段不带分隔符连接以避免损坏分块 JSON/文本。
+    基于字典的文本块视为完整文本块，用换行符连接以提高可读性。
     """
     if isinstance(content, str):
         return content
@@ -203,9 +205,8 @@ def _extract_text(content: Any) -> str:
     return str(content)
 
 
-# Matches sentences that describe a file-upload *event* rather than general
-# file-related work.  Deliberately narrow to avoid removing legitimate facts
-# such as "User works with CSV files" or "prefers PDF export".
+# 匹配描述文件上传*事件*而非通用文件相关工作的句子。
+# 刻意保持狭窄以避免移除合法事实，如"用户使用 CSV 文件"或"偏好 PDF 导出"。
 _UPLOAD_SENTENCE_RE = re.compile(
     r"[^.!?]*\b(?:"
     r"upload(?:ed|ing)?(?:\s+\w+){0,3}\s+(?:file|files?|document|documents?|attachment|attachments?)"
@@ -218,10 +219,10 @@ _UPLOAD_SENTENCE_RE = re.compile(
 
 
 def _strip_upload_mentions_from_memory(memory_data: dict[str, Any]) -> dict[str, Any]:
-    """Remove sentences about file uploads from all memory summaries and facts.
+    """从所有记忆摘要和事实中移除关于文件上传的句子。
 
-    Uploaded files are session-scoped; persisting upload events in long-term
-    memory causes the agent to search for non-existent files in future sessions.
+    上传的文件是会话范围的；将上传事件持久化到长期记忆中
+    会导致智能体在后续会话中搜索不存在的文件。
     """
     # Scrub summaries in user/history sections
     for section in ("user", "history"):
@@ -250,32 +251,32 @@ def _fact_content_key(content: Any) -> str | None:
 
 
 class MemoryUpdater:
-    """Updates memory using LLM based on conversation context."""
+    """使用 LLM 基于对话上下文更新记忆。"""
 
     def __init__(self, model_name: str | None = None):
-        """Initialize the memory updater.
+        """初始化记忆更新器。
 
         Args:
-            model_name: Optional model name to use. If None, uses config or default.
+            model_name: 可选的模型名称。如果为 None，使用配置或默认模型。
         """
         self._model_name = model_name
 
     def _get_model(self):
-        """Get the model for memory updates."""
+        """获取用于记忆更新的模型。"""
         config = get_memory_config()
         model_name = self._model_name or config.model_name
         return create_chat_model(name=model_name, thinking_enabled=False)
 
     def update_memory(self, messages: list[Any], thread_id: str | None = None, agent_name: str | None = None) -> bool:
-        """Update memory based on conversation messages.
+        """根据对话消息更新记忆。
 
         Args:
-            messages: List of conversation messages.
-            thread_id: Optional thread ID for tracking source.
-            agent_name: If provided, updates per-agent memory. If None, updates global memory.
+            messages: 对话消息列表。
+            thread_id: 可选的线程 ID，用于跟踪来源。
+            agent_name: 如果提供，更新按智能体的记忆；如果为 None，更新全局记忆。
 
         Returns:
-            True if update was successful, False otherwise.
+            更新成功返回 True，否则返回 False。
         """
         config = get_memory_config()
         if not config.enabled:
@@ -338,15 +339,15 @@ class MemoryUpdater:
         update_data: dict[str, Any],
         thread_id: str | None = None,
     ) -> dict[str, Any]:
-        """Apply LLM-generated updates to memory.
+        """将 LLM 生成的更新应用到记忆数据。
 
         Args:
-            current_memory: Current memory data.
-            update_data: Updates from LLM.
-            thread_id: Optional thread ID for tracking.
+            current_memory: 当前记忆数据。
+            update_data: LLM 生成的更新数据。
+            thread_id: 可选的线程 ID，用于跟踪。
 
         Returns:
-            Updated memory data.
+            更新后的记忆数据。
         """
         config = get_memory_config()
         now = datetime.utcnow().isoformat() + "Z"
@@ -413,15 +414,15 @@ class MemoryUpdater:
 
 
 def update_memory_from_conversation(messages: list[Any], thread_id: str | None = None, agent_name: str | None = None) -> bool:
-    """Convenience function to update memory from a conversation.
+    """从对话更新记忆的便捷函数。
 
     Args:
-        messages: List of conversation messages.
-        thread_id: Optional thread ID.
-        agent_name: If provided, updates per-agent memory. If None, updates global memory.
+        messages: 对话消息列表。
+        thread_id: 可选的线程 ID。
+        agent_name: 如果提供，更新按智能体的记忆；如果为 None，更新全局记忆。
 
     Returns:
-        True if successful, False otherwise.
+        成功返回 True，否则返回 False。
     """
     updater = MemoryUpdater()
     return updater.update_memory(messages, thread_id, agent_name)

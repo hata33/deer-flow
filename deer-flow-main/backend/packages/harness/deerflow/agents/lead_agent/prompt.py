@@ -9,13 +9,13 @@ logger = logging.getLogger(__name__)
 
 
 def _build_subagent_section(max_concurrent: int) -> str:
-    """Build the subagent system prompt section with dynamic concurrency limit.
+    """构建子智能体系统提示词段落，包含动态并发限制。
 
     Args:
-        max_concurrent: Maximum number of concurrent subagent calls allowed per response.
+        max_concurrent: 每次响应允许的最大并发子智能体调用数。
 
     Returns:
-        Formatted subagent section string.
+        格式化后的子智能体段落字符串。
     """
     n = max_concurrent
     bash_available = "bash" in get_available_subagent_names()
@@ -349,13 +349,13 @@ combined with a FastAPI gateway for REST API access [citation:FastAPI](https://f
 
 
 def _get_memory_context(agent_name: str | None = None) -> str:
-    """Get memory context for injection into system prompt.
+    """获取用于注入到系统提示词中的记忆上下文。
 
     Args:
-        agent_name: If provided, loads per-agent memory. If None, loads global memory.
+        agent_name: 如果提供，加载按智能体的记忆；如果为 None，加载全局记忆。
 
     Returns:
-        Formatted memory context string wrapped in XML tags, or empty string if disabled.
+        用 XML 标签包裹的格式化记忆上下文字符串，禁用时返回空字符串。
     """
     try:
         from deerflow.agents.memory import format_memory_for_injection, get_memory_data
@@ -381,10 +381,10 @@ def _get_memory_context(agent_name: str | None = None) -> str:
 
 
 def get_skills_prompt_section(available_skills: set[str] | None = None) -> str:
-    """Generate the skills prompt section with available skills list.
+    """生成技能提示词段落，包含可用技能列表。
 
-    Returns the <skill_system>...</skill_system> block listing all enabled skills,
-    suitable for injection into any agent's system prompt.
+    返回 <skill_system>...</skill_system> 块，列出所有已启用的技能，
+    适合注入到任何智能体的系统提示词中。
     """
     skills = load_skills(enabled_only=True)
 
@@ -425,7 +425,8 @@ You have access to skills that provide optimized workflows for specific tasks. E
 
 
 def get_agent_soul(agent_name: str | None) -> str:
-    # Append SOUL.md (agent personality) if present
+    """获取智能体灵魂（SOUL.md 人格描述）内容。"""
+    # 如果存在 SOUL.md（智能体人格），则追加
     soul = load_agent_soul(agent_name)
     if soul:
         return f"<soul>\n{soul}\n</soul>\n" if soul else ""
@@ -433,11 +434,11 @@ def get_agent_soul(agent_name: str | None) -> str:
 
 
 def get_deferred_tools_prompt_section() -> str:
-    """Generate <available-deferred-tools> block for the system prompt.
+    """生成系统提示词中的 <available-deferred-tools> 块。
 
-    Lists only deferred tool names so the agent knows what exists
-    and can use tool_search to load them.
-    Returns empty string when tool_search is disabled or no tools are deferred.
+    仅列出延迟工具名称，使智能体知道哪些工具存在，
+    并可通过 tool_search 加载它们。
+    当 tool_search 禁用或没有延迟工具时返回空字符串。
     """
     from deerflow.tools.builtins.tool_search import get_deferred_registry
 
@@ -458,7 +459,7 @@ def get_deferred_tools_prompt_section() -> str:
 
 
 def _build_acp_section() -> str:
-    """Build the ACP agent prompt section, only if ACP agents are configured."""
+    """构建 ACP 智能体提示词段落，仅在配置了 ACP 智能体时生成。"""
     try:
         from deerflow.config.acp_config import get_acp_agents
 
@@ -478,7 +479,18 @@ def _build_acp_section() -> str:
 
 
 def apply_prompt_template(subagent_enabled: bool = False, max_concurrent_subagents: int = 3, *, agent_name: str | None = None, available_skills: set[str] | None = None) -> str:
-    # Get memory context
+    """应用系统提示词模板，组装完整的智能体系统提示词。
+
+    动态组装包含角色定义、记忆上下文、技能列表、子智能体指令、
+    工作目录说明、引用格式等内容的完整系统提示词。
+
+    Args:
+        subagent_enabled: 是否启用子智能体功能。
+        max_concurrent_subagents: 最大并发子智能体数。
+        agent_name: 智能体名称（用于加载人格和记忆）。
+        available_skills: 可用技能名称集合。
+    """
+    # 获取记忆上下文
     memory_context = _get_memory_context(agent_name)
 
     # Include subagent section only if enabled (from runtime parameter)

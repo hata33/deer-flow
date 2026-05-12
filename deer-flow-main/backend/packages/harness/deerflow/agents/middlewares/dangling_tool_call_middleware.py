@@ -1,16 +1,13 @@
-"""Middleware to fix dangling tool calls in message history.
+"""用于修复消息历史中悬空工具调用的中间件。
 
-A dangling tool call occurs when an AIMessage contains tool_calls but there are
-no corresponding ToolMessages in the history (e.g., due to user interruption or
-request cancellation). This causes LLM errors due to incomplete message format.
+悬空工具调用是指 AIMessage 包含 tool_calls 但历史记录中没有对应的 ToolMessages
+（例如由于用户中断或请求取消）。这会导致 LLM 因消息格式不完整而报错。
 
-This middleware intercepts the model call to detect and patch such gaps by
-inserting synthetic ToolMessages with an error indicator immediately after the
-AIMessage that made the tool calls, ensuring correct message ordering.
+此中间件拦截模型调用，检测并修补这些缺口，在产生工具调用的 AIMessage 之后
+立即插入带有错误指示的合成 ToolMessages，确保消息顺序正确。
 
-Note: Uses wrap_model_call instead of before_model to ensure patches are inserted
-at the correct positions (immediately after each dangling AIMessage), not appended
-to the end of the message list as before_model + add_messages reducer would do.
+注意：使用 wrap_model_call 而非 before_model，以确保补丁插入到正确位置
+（紧接在每个悬空 AIMessage 之后），而非追加到消息列表末尾。
 """
 
 import logging
@@ -26,19 +23,18 @@ logger = logging.getLogger(__name__)
 
 
 class DanglingToolCallMiddleware(AgentMiddleware[AgentState]):
-    """Inserts placeholder ToolMessages for dangling tool calls before model invocation.
+    """在模型调用前为悬空工具调用插入占位 ToolMessages。
 
-    Scans the message history for AIMessages whose tool_calls lack corresponding
-    ToolMessages, and injects synthetic error responses immediately after the
-    offending AIMessage so the LLM receives a well-formed conversation.
+    扫描消息历史中缺少对应 ToolMessages 的 AIMessage 的 tool_calls，
+    并在有问题的 AIMessage 后立即注入合成错误响应，使 LLM 收到格式正确的对话。
     """
 
     def _build_patched_messages(self, messages: list) -> list | None:
-        """Return a new message list with patches inserted at the correct positions.
+        """返回在正确位置插入补丁的新消息列表。
 
-        For each AIMessage with dangling tool_calls (no corresponding ToolMessage),
-        a synthetic ToolMessage is inserted immediately after that AIMessage.
-        Returns None if no patches are needed.
+        对于每个包含悬空 tool_calls（无对应 ToolMessage）的 AIMessage，
+        在该 AIMessage 之后立即插入合成的 ToolMessage。
+        如果不需要补丁则返回 None。
         """
         # Collect IDs of all existing ToolMessages
         existing_tool_msg_ids: set[str] = set()

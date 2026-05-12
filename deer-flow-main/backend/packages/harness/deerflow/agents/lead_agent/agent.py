@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_model_name(requested_model_name: str | None = None) -> str:
-    """Resolve a runtime model name safely, falling back to default if invalid. Returns None if no models are configured."""
+    """安全解析运行时模型名称，无效时回退到默认模型。如果未配置任何模型则返回 None。"""
     app_config = get_app_config()
     default_model_name = app_config.models[0].name if app_config.models else None
     if default_model_name is None:
@@ -39,7 +39,7 @@ def _resolve_model_name(requested_model_name: str | None = None) -> str:
 
 
 def _create_summarization_middleware() -> SummarizationMiddleware | None:
-    """Create and configure the summarization middleware from config."""
+    """根据配置创建并配置摘要中间件。"""
     config = get_summarization_config()
 
     if not config.enabled:
@@ -81,13 +81,13 @@ def _create_summarization_middleware() -> SummarizationMiddleware | None:
 
 
 def _create_todo_list_middleware(is_plan_mode: bool) -> TodoMiddleware | None:
-    """Create and configure the TodoList middleware.
+    """创建并配置待办列表中间件。
 
     Args:
-        is_plan_mode: Whether to enable plan mode with TodoList middleware.
+        is_plan_mode: 是否启用计划模式的待办列表中间件。
 
     Returns:
-        TodoMiddleware instance if plan mode is enabled, None otherwise.
+        如果计划模式启用则返回 TodoMiddleware 实例，否则返回 None。
     """
     if not is_plan_mode:
         return None
@@ -195,26 +195,27 @@ Being proactive with task management demonstrates thoroughness and ensures all r
     return TodoMiddleware(system_prompt=system_prompt, tool_description=tool_description)
 
 
-# ThreadDataMiddleware must be before SandboxMiddleware to ensure thread_id is available
-# UploadsMiddleware should be after ThreadDataMiddleware to access thread_id
-# DanglingToolCallMiddleware patches missing ToolMessages before model sees the history
-# SummarizationMiddleware should be early to reduce context before other processing
-# TodoListMiddleware should be before ClarificationMiddleware to allow todo management
-# TitleMiddleware generates title after first exchange
-# MemoryMiddleware queues conversation for memory update (after TitleMiddleware)
-# ViewImageMiddleware should be before ClarificationMiddleware to inject image details before LLM
-# ToolErrorHandlingMiddleware should be before ClarificationMiddleware to convert tool exceptions to ToolMessages
-# ClarificationMiddleware should be last to intercept clarification requests after model calls
+# 中间件顺序说明：
+# ThreadDataMiddleware 必须在 SandboxMiddleware 之前，确保 thread_id 可用
+# UploadsMiddleware 应在 ThreadDataMiddleware 之后，以访问 thread_id
+# DanglingToolCallMiddleware 在模型看到历史记录之前修补缺失的 ToolMessages
+# SummarizationMiddleware 应该靠前，在其他处理之前减少上下文
+# TodoListMiddleware 应在 ClarificationMiddleware 之前，允许待办管理
+# TitleMiddleware 在首次对话后生成标题
+# MemoryMiddleware 排队会话以进行记忆更新（在 TitleMiddleware 之后）
+# ViewImageMiddleware 应在 ClarificationMiddleware 之前，在 LLM 调用前注入图片详情
+# ToolErrorHandlingMiddleware 应在 ClarificationMiddleware 之前，将工具异常转为 ToolMessages
+# ClarificationMiddleware 应该始终在最后，在模型调用后拦截澄清请求
 def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_name: str | None = None, custom_middlewares: list[AgentMiddleware] | None = None):
-    """Build middleware chain based on runtime configuration.
+    """根据运行时配置构建中间件链。
 
     Args:
-        config: Runtime configuration containing configurable options like is_plan_mode.
-        agent_name: If provided, MemoryMiddleware will use per-agent memory storage.
-        custom_middlewares: Optional list of custom middlewares to inject into the chain.
+        config: 运行时配置，包含 is_plan_mode 等可配置选项。
+        agent_name: 如果提供，MemoryMiddleware 将使用按智能体的记忆存储。
+        custom_middlewares: 可选的自定义中间件列表，注入到链中。
 
     Returns:
-        List of middleware instances.
+        中间件实例列表。
     """
     middlewares = build_lead_runtime_middlewares(lazy_init=True)
 
@@ -271,7 +272,12 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
 
 
 def make_lead_agent(config: RunnableConfig):
-    # Lazy import to avoid circular dependency
+    """主智能体工厂函数。
+
+    根据运行时配置创建带有完整中间件链和工具集的 LangGraph 编译图。
+    支持动态模型选择、思考模式、计划模式、子智能体委托等功能。
+    """
+    # 延迟导入以避免循环依赖
     from deerflow.tools import get_available_tools
     from deerflow.tools.builtins import setup_agent
 
