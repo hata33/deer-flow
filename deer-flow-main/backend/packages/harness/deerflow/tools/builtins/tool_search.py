@@ -1,12 +1,12 @@
-"""Tool search — deferred tool discovery at runtime.
+"""延迟工具搜索 — 运行时按需发现工具。
 
-Contains:
-- DeferredToolRegistry: stores deferred tools and handles regex search
-- tool_search: the LangChain tool the agent calls to discover deferred tools
+包含：
+- DeferredToolRegistry：存储延迟加载的工具，支持正则表达式搜索
+- tool_search：LangChain 工具，供 agent 调用以发现延迟工具的完整定义
 
-The agent sees deferred tool names in <available-deferred-tools> but cannot
-call them until it fetches their full schema via the tool_search tool.
-Source-agnostic: no mention of MCP or tool origin.
+agent 在系统提示的 <available-deferred-tools> 中可以看到延迟工具的名称，
+但无法直接调用，必须通过 tool_search 获取完整的参数定义后才能使用。
+设计上与工具来源无关（不涉及 MCP 等具体来源）。
 """
 
 import contextvars
@@ -21,15 +21,15 @@ from langchain_core.utils.function_calling import convert_to_openai_function
 
 logger = logging.getLogger(__name__)
 
-MAX_RESULTS = 5  # Max tools returned per search
+MAX_RESULTS = 5  # 每次搜索最多返回的工具数量
 
 
-# ── Registry ──
+# ── 注册表 ──
 
 
 @dataclass
 class DeferredToolEntry:
-    """Lightweight metadata for a deferred tool (no full schema in context)."""
+    """延迟工具的轻量元数据条目（不含完整参数定义，减少上下文占用）。"""
 
     name: str
     description: str
@@ -37,7 +37,7 @@ class DeferredToolEntry:
 
 
 class DeferredToolRegistry:
-    """Registry of deferred tools, searchable by regex pattern."""
+    """延迟工具注册表，支持通过正则表达式按名称和描述搜索。"""
 
     def __init__(self):
         self._entries: list[DeferredToolEntry] = []
@@ -52,11 +52,11 @@ class DeferredToolRegistry:
         )
 
     def promote(self, names: set[str]) -> None:
-        """Remove tools from the deferred registry so they pass through the filter.
+        """将工具从延迟注册表中提升为活跃状态。
 
-        Called after tool_search returns a tool's schema — the LLM now knows
-        the full definition, so the DeferredToolFilterMiddleware should stop
-        stripping it from bind_tools on subsequent calls.
+        在 tool_search 返回工具的完整定义后调用。
+        LLM 已获取完整参数定义，DeferredToolFilterMiddleware 将不再
+        在后续的 bind_tools 调用中过滤这些工具。
         """
         if not names:
             return
@@ -78,10 +78,12 @@ class DeferredToolRegistry:
             List of matched BaseTool objects (up to MAX_RESULTS).
         """
         if query.startswith("select:"):
+            # 精确选择模式："select:name1,name2"
             names = {n.strip() for n in query[7:].split(",")}
             return [e.tool for e in self._entries if e.name in names][:MAX_RESULTS]
 
         if query.startswith("+"):
+            # 必须包含模式："+keyword rest" — 名称必须包含 keyword，按 rest 排序
             parts = query[1:].split(None, 1)
             required = parts[0].lower()
             candidates = [e for e in self._entries if required in e.name.lower()]
@@ -92,7 +94,7 @@ class DeferredToolRegistry:
                 )
             return [e.tool for e in candidates][:MAX_RESULTS]
 
-        # General regex search
+        # 通用正则搜索模式
         try:
             regex = re.compile(query, re.IGNORECASE)
         except re.error:
@@ -102,6 +104,7 @@ class DeferredToolRegistry:
         for entry in self._entries:
             searchable = f"{entry.name} {entry.description}"
             if regex.search(searchable):
+                # 名称匹配优先级（2）高于描述匹配（1）
                 score = 2 if regex.search(entry.name) else 1
                 scored.append((score, entry))
 
@@ -117,6 +120,7 @@ class DeferredToolRegistry:
 
 
 def _regex_score(pattern: str, entry: DeferredToolEntry) -> int:
+    """计算正则匹配得分，用于候选工具排序。"""
     try:
         regex = re.compile(pattern, re.IGNORECASE)
     except re.error:
@@ -124,14 +128,13 @@ def _regex_score(pattern: str, entry: DeferredToolEntry) -> int:
     return len(regex.findall(f"{entry.name} {entry.description}"))
 
 
-# ── Per-request registry (ContextVar) ──
+# ── 每请求注册表（ContextVar）──
 #
-# Using a ContextVar instead of a module-level global prevents concurrent
-# requests from clobbering each other's registry.  In asyncio-based LangGraph
-# each graph run executes in its own async context, so each request gets an
-# independent registry value.  For synchronous tools run via
-# loop.run_in_executor, Python copies the current context to the worker thread,
-# so the ContextVar value is correctly inherited there too.
+# 使用 ContextVar 而非模块级全局变量，防止并发请求之间互相干扰。
+# 在基于 asyncio 的 LangGraph 中，每个图执行在独立的异步上下文中运行，
+# 因此每个请求拥有独立的注册表值。对于通过 loop.run_in_executor
+# 运行的同步工具，Python 会将当前上下文复制到工作线程，
+# 因此 ContextVar 值也能正确继承。
 
 _registry_var: contextvars.ContextVar[DeferredToolRegistry | None] = contextvars.ContextVar("deferred_tool_registry", default=None)
 
@@ -145,11 +148,11 @@ def set_deferred_registry(registry: DeferredToolRegistry) -> None:
 
 
 def reset_deferred_registry() -> None:
-    """Reset the deferred registry for the current async context."""
+    """重置当前异步上下文中的延迟注册表。"""
     _registry_var.set(None)
 
 
-# ── Tool ──
+# ── 工具定义 ──
 
 
 @tool
@@ -182,12 +185,10 @@ def tool_search(query: str) -> str:
     if not matched_tools:
         return f"No tools found matching: {query}"
 
-    # Use LangChain's built-in serialization to produce OpenAI function format.
-    # This is model-agnostic: all LLMs understand this standard schema.
+    # 使用 LangChain 内置序列化生成 OpenAI function 格式（模型无关的标准定义）
     tool_defs = [convert_to_openai_function(t) for t in matched_tools[:MAX_RESULTS]]
 
-    # Promote matched tools so the DeferredToolFilterMiddleware stops filtering
-    # them from bind_tools — the LLM now has the full schema and can invoke them.
+    # 将匹配的工具提升为活跃状态，后续 DeferredToolFilterMiddleware 不再过滤它们
     registry.promote({t.name for t in matched_tools[:MAX_RESULTS]})
 
     return json.dumps(tool_defs, indent=2, ensure_ascii=False)

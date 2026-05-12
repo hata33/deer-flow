@@ -1,3 +1,10 @@
+"""用户澄清工具。
+
+当 agent 缺少必要信息、需求模糊、需要确认高风险操作时，
+调用此工具向用户提问。工具调用会被 ClarificationMiddleware 拦截，
+自动中断执行流程并将问题呈现给用户，等待用户回复后继续。
+"""
+
 from typing import Literal
 
 from langchain.tools import tool
@@ -49,7 +56,6 @@ def ask_clarification_tool(
         context: Optional context explaining why clarification is needed. Helps the user understand the situation.
         options: Optional list of choices (for approach_choice or suggestion types). Present clear options for the user to choose from.
     """
-    # This is a placeholder implementation
-    # The actual logic is handled by ClarificationMiddleware which intercepts this tool call
-    # and interrupts execution to present the question to the user
+    # 此处仅占位返回，实际逻辑由 ClarificationMiddleware 拦截处理：
+    # 中断当前执行流 → 向用户展示问题 → 等待回复 → 恢复执行
     return "Clarification request processed by middleware"

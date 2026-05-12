@@ -1,4 +1,8 @@
-"""General-purpose subagent configuration."""
+"""通用型子智能体配置。
+
+适用于需要同时进行探索和操作的复杂多步骤任务的子智能体，
+继承父智能体的所有工具（除 task、ask_clarification、present_files）。
+"""
 
 from deerflow.subagents.config import SubagentConfig
 

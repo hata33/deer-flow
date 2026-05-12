@@ -1,4 +1,8 @@
-"""Bash command execution subagent configuration."""
+"""bash 命令执行子智能体配置。
+
+专注于在独立上下文中运行 bash 命令的子智能体，
+适用于一系列相关命令、终端操作、构建/测试/部署等场景。
+"""
 
 from deerflow.subagents.config import SubagentConfig
 

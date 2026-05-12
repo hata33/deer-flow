@@ -276,6 +276,28 @@ def make_lead_agent(config: RunnableConfig):
 
     根据运行时配置创建带有完整中间件链和工具集的 LangGraph 编译图。
     支持动态模型选择、思考模式、计划模式、子智能体委托等功能。
+
+    执行流程：
+    1. 从 config.configurable 中提取运行时参数（模型、思考模式、计划模式等）
+    2. 按优先级解析模型名称：请求参数 > 智能体配置 > 全局默认
+    3. 验证模型是否支持所请求的功能（如思考模式）
+    4. 注入 LangSmith 追踪元数据
+    5. 创建带有中间件链、工具集和系统提示词的智能体
+
+    Args:
+        config: LangGraph 运行时配置（RunnableConfig），可通过
+            config.configurable 传递以下参数：
+            - thinking_enabled (bool): 是否启用思考模式，默认 True
+            - reasoning_effort (str|None): 推理力度，如 "low"/"medium"/"high"
+            - model_name / model (str|None): 指定使用的模型名称
+            - is_plan_mode (bool): 是否启用计划模式（TodoList），默认 False
+            - subagent_enabled (bool): 是否启用子智能体委托，默认 False
+            - max_concurrent_subagents (int): 最大并发子智能体数，默认 3
+            - is_bootstrap (bool): 是否为初始化引导智能体，默认 False
+            - agent_name (str|None): 自定义智能体名称
+
+    Returns:
+        CompiledStateGraph: 编译后的 LangGraph 状态图，可直接调用 invoke/stream。
     """
     # 延迟导入以避免循环依赖
     from deerflow.tools import get_available_tools
@@ -283,6 +305,7 @@ def make_lead_agent(config: RunnableConfig):
 
     cfg = config.get("configurable", {})
 
+    # --- 第一步：提取运行时参数 ---
     thinking_enabled = cfg.get("thinking_enabled", True)
     reasoning_effort = cfg.get("reasoning_effort", None)
     requested_model_name: str | None = cfg.get("model_name") or cfg.get("model")
@@ -292,13 +315,15 @@ def make_lead_agent(config: RunnableConfig):
     is_bootstrap = cfg.get("is_bootstrap", False)
     agent_name = cfg.get("agent_name")
 
+    # --- 第二步：解析模型名称（三级优先级） ---
     agent_config = load_agent_config(agent_name) if not is_bootstrap else None
-    # Custom agent model or fallback to global/default model resolution
+    # 自定义智能体模型 或 回退到全局/默认模型解析
     agent_model_name = agent_config.model if agent_config and agent_config.model else _resolve_model_name()
 
-    # Final model name resolution with request override, then agent config, then global default
+    # 最终模型名称解析：请求参数 > 智能体配置 > 全局默认
     model_name = requested_model_name or agent_model_name
 
+    # --- 第三步：验证模型配置 ---
     app_config = get_app_config()
     model_config = app_config.get_model_config(model_name) if model_name else None
 
@@ -319,7 +344,7 @@ def make_lead_agent(config: RunnableConfig):
         max_concurrent_subagents,
     )
 
-    # Inject run metadata for LangSmith trace tagging
+    # --- 第四步：注入 LangSmith 追踪元数据 ---
     if "metadata" not in config:
         config["metadata"] = {}
 
@@ -334,8 +359,9 @@ def make_lead_agent(config: RunnableConfig):
         }
     )
 
+    # --- 第五步：创建智能体实例 ---
     if is_bootstrap:
-        # Special bootstrap agent with minimal prompt for initial custom agent creation flow
+        # 引导模式：使用精简提示词和 setup_agent 工具，用于初始自定义智能体创建流程
         return create_agent(
             model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled),
             tools=get_available_tools(model_name=model_name, subagent_enabled=subagent_enabled) + [setup_agent],
@@ -344,7 +370,7 @@ def make_lead_agent(config: RunnableConfig):
             state_schema=ThreadState,
         )
 
-    # Default lead agent (unchanged behavior)
+    # 默认模式：标准主智能体（支持自定义智能体名称、工具组、推理力度等）
     return create_agent(
         model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled, reasoning_effort=reasoning_effort),
         tools=get_available_tools(model_name=model_name, groups=agent_config.tool_groups if agent_config else None, subagent_enabled=subagent_enabled),

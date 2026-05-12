@@ -1,3 +1,10 @@
+"""文件展示工具。
+
+将 agent 生成的输出文件呈现给用户。仅接受 ``/mnt/user-data/outputs``
+目录下的文件路径，确保 agent 只能展示受控的输出内容。
+路径会经过标准化处理，支持虚拟路径和宿主机物理路径两种输入。
+"""
+
 from pathlib import Path
 from typing import Annotated
 
@@ -9,6 +16,7 @@ from langgraph.typing import ContextT
 from deerflow.agents.thread_state import ThreadState
 from deerflow.config.paths import VIRTUAL_PATH_PREFIX, get_paths
 
+# 输出文件的虚拟路径前缀，仅此目录下的文件可被展示
 OUTPUTS_VIRTUAL_PREFIX = f"{VIRTUAL_PATH_PREFIX}/outputs"
 
 
@@ -85,13 +93,14 @@ def present_file_tool(
         filepaths: List of absolute file paths to present to the user. **Only** files in `/mnt/user-data/outputs` can be presented.
     """
     try:
+        # 逐个标准化路径，确保均位于 outputs 目录下
         normalized_paths = [_normalize_presented_filepath(runtime, filepath) for filepath in filepaths]
     except ValueError as exc:
         return Command(
             update={"messages": [ToolMessage(f"Error: {exc}", tool_call_id=tool_call_id)]},
         )
 
-    # The merge_artifacts reducer will handle merging and deduplication
+    # merge_artifacts reducer 负责合并与去重
     return Command(
         update={
             "artifacts": normalized_paths,

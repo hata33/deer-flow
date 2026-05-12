@@ -1,3 +1,11 @@
+"""图片查看工具。
+
+读取图片文件并转为 base64 编码，供支持视觉能力的模型使用。
+仅当模型配置了 ``supports_vision=True`` 时才会被加载。
+图片数据通过 ``viewed_images`` 状态字段传递给 ViewImageMiddleware，
+在下次 LLM 调用前注入到消息中。
+"""
+
 import base64
 import mimetypes
 from pathlib import Path
@@ -33,12 +41,11 @@ def view_image_tool(
     """
     from deerflow.sandbox.tools import get_thread_data, replace_virtual_path
 
-    # Replace virtual path with actual path
-    # /mnt/user-data/* paths are mapped to thread-specific directories
+    # 将虚拟路径（如 /mnt/user-data/*）转换为宿主机物理路径
     thread_data = get_thread_data(runtime)
     actual_path = replace_virtual_path(image_path, thread_data)
 
-    # Validate that the path is absolute
+    # 以下为一系列校验：路径必须为绝对路径、文件必须存在、必须是文件而非目录
     path = Path(actual_path)
     if not path.is_absolute():
         return Command(
@@ -57,14 +64,14 @@ def view_image_tool(
             update={"messages": [ToolMessage(f"Error: Path is not a file: {image_path}", tool_call_id=tool_call_id)]},
         )
 
-    # Validate image extension
+    # 校验图片格式扩展名
     valid_extensions = {".jpg", ".jpeg", ".png", ".webp"}
     if path.suffix.lower() not in valid_extensions:
         return Command(
             update={"messages": [ToolMessage(f"Error: Unsupported image format: {path.suffix}. Supported formats: {', '.join(valid_extensions)}", tool_call_id=tool_call_id)]},
         )
 
-    # Detect MIME type from file extension
+    # 根据文件扩展名检测 MIME 类型
     mime_type, _ = mimetypes.guess_type(actual_path)
     if mime_type is None:
         # Fallback to default MIME types for common image formats
@@ -76,7 +83,7 @@ def view_image_tool(
         }
         mime_type = extension_to_mime.get(path.suffix.lower(), "application/octet-stream")
 
-    # Read image file and convert to base64
+    # 读取图片文件并转换为 base64 编码
     try:
         with open(actual_path, "rb") as f:
             image_data = f.read()
@@ -86,8 +93,7 @@ def view_image_tool(
             update={"messages": [ToolMessage(f"Error reading image file: {str(e)}", tool_call_id=tool_call_id)]},
         )
 
-    # Update viewed_images in state
-    # The merge_viewed_images reducer will handle merging with existing images
+    # 通过状态字段传递图片数据，merge_viewed_images reducer 负责与已有图片合并
     new_viewed_images = {image_path: {"base64": image_base64, "mime_type": mime_type}}
 
     return Command(

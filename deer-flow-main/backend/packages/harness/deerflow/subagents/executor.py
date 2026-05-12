@@ -1,4 +1,8 @@
-"""Subagent execution engine."""
+"""子智能体执行引擎。
+
+提供子智能体的同步/异步执行能力，包括双线程池架构（调度池 + 执行池）、
+超时控制、实时消息捕获和后台任务管理。
+"""
 
 import asyncio
 import logging
@@ -24,28 +28,28 @@ logger = logging.getLogger(__name__)
 
 
 class SubagentStatus(Enum):
-    """Status of a subagent execution."""
+    """子智能体执行状态。"""
 
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    TIMED_OUT = "timed_out"
+    PENDING = "pending"  # 等待中
+    RUNNING = "running"  # 运行中
+    COMPLETED = "completed"  # 已完成
+    FAILED = "failed"  # 失败
+    TIMED_OUT = "timed_out"  # 超时
 
 
 @dataclass
 class SubagentResult:
-    """Result of a subagent execution.
+    """子智能体执行结果。
 
     Attributes:
-        task_id: Unique identifier for this execution.
-        trace_id: Trace ID for distributed tracing (links parent and subagent logs).
-        status: Current status of the execution.
-        result: The final result message (if completed).
-        error: Error message (if failed).
-        started_at: When execution started.
-        completed_at: When execution completed.
-        ai_messages: List of complete AI messages (as dicts) generated during execution.
+        task_id: 本次执行的唯一标识符。
+        trace_id: 分布式追踪 ID（关联父智能体和子智能体日志）。
+        status: 当前执行状态。
+        result: 最终结果消息（如果已完成）。
+        error: 错误消息（如果失败）。
+        started_at: 执行开始时间。
+        completed_at: 执行完成时间。
+        ai_messages: 执行过程中生成的完整 AI 消息列表（字典形式）。
     """
 
     task_id: str
@@ -58,20 +62,20 @@ class SubagentResult:
     ai_messages: list[dict[str, Any]] | None = None
 
     def __post_init__(self):
-        """Initialize mutable defaults."""
+        """初始化可变默认值。"""
         if self.ai_messages is None:
             self.ai_messages = []
 
 
-# Global storage for background task results
+# 全局后台任务结果存储
 _background_tasks: dict[str, SubagentResult] = {}
 _background_tasks_lock = threading.Lock()
 
-# Thread pool for background task scheduling and orchestration
+# 调度线程池：负责后台任务的调度和编排
 _scheduler_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="subagent-scheduler-")
 
-# Thread pool for actual subagent execution (with timeout support)
-# Larger pool to avoid blocking when scheduler submits execution tasks
+# 执行线程池：负责实际的子智能体执行（支持超时）
+# 较大的池以避免调度器提交执行任务时阻塞
 _execution_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="subagent-exec-")
 
 
@@ -80,24 +84,24 @@ def _filter_tools(
     allowed: list[str] | None,
     disallowed: list[str] | None,
 ) -> list[BaseTool]:
-    """Filter tools based on subagent configuration.
+    """根据子智能体配置过滤工具。
 
     Args:
-        all_tools: List of all available tools.
-        allowed: Optional allowlist of tool names. If provided, only these tools are included.
-        disallowed: Optional denylist of tool names. These tools are always excluded.
+        all_tools: 所有可用工具列表。
+        allowed: 可选的允许列表。如果提供，仅包含这些工具。
+        disallowed: 可选的禁止列表。这些工具始终被排除。
 
     Returns:
-        Filtered list of tools.
+        过滤后的工具列表。
     """
     filtered = all_tools
 
-    # Apply allowlist if specified
+    # 如果指定了允许列表，则应用白名单
     if allowed is not None:
         allowed_set = set(allowed)
         filtered = [t for t in filtered if t.name in allowed_set]
 
-    # Apply denylist
+    # 应用禁止列表
     if disallowed is not None:
         disallowed_set = set(disallowed)
         filtered = [t for t in filtered if t.name not in disallowed_set]
@@ -106,14 +110,14 @@ def _filter_tools(
 
 
 def _get_model_name(config: SubagentConfig, parent_model: str | None) -> str | None:
-    """Resolve the model name for a subagent.
+    """解析子智能体使用的模型名称。
 
     Args:
-        config: Subagent configuration.
-        parent_model: The parent agent's model name.
+        config: 子智能体配置。
+        parent_model: 父智能体的模型名称。
 
     Returns:
-        Model name to use, or None to use default.
+        要使用的模型名称，或 None 表示使用默认值。
     """
     if config.model == "inherit":
         return parent_model
@@ -121,7 +125,7 @@ def _get_model_name(config: SubagentConfig, parent_model: str | None) -> str | N
 
 
 class SubagentExecutor:
-    """Executor for running subagents."""
+    """子智能体执行器，负责创建和运行子智能体实例。"""
 
     def __init__(
         self,
@@ -133,26 +137,26 @@ class SubagentExecutor:
         thread_id: str | None = None,
         trace_id: str | None = None,
     ):
-        """Initialize the executor.
+        """初始化执行器。
 
         Args:
-            config: Subagent configuration.
-            tools: List of all available tools (will be filtered).
-            parent_model: The parent agent's model name for inheritance.
-            sandbox_state: Sandbox state from parent agent.
-            thread_data: Thread data from parent agent.
-            thread_id: Thread ID for sandbox operations.
-            trace_id: Trace ID from parent for distributed tracing.
+            config: 子智能体配置。
+            tools: 所有可用工具列表（将被过滤）。
+            parent_model: 父智能体的模型名称，用于继承。
+            sandbox_state: 来自父智能体的沙箱状态。
+            thread_data: 来自父智能体的线程数据。
+            thread_id: 用于沙箱操作的线程 ID。
+            trace_id: 来自父智能体的追踪 ID，用于分布式追踪。
         """
         self.config = config
         self.parent_model = parent_model
         self.sandbox_state = sandbox_state
         self.thread_data = thread_data
         self.thread_id = thread_id
-        # Generate trace_id if not provided (for top-level calls)
+        # 如果未提供则生成 trace_id（用于顶层调用）
         self.trace_id = trace_id or str(uuid.uuid4())[:8]
 
-        # Filter tools based on config
+        # 根据配置过滤工具
         self.tools = _filter_tools(
             tools,
             config.tools,
@@ -162,13 +166,13 @@ class SubagentExecutor:
         logger.info(f"[trace={self.trace_id}] SubagentExecutor initialized: {config.name} with {len(self.tools)} tools")
 
     def _create_agent(self):
-        """Create the agent instance."""
+        """创建智能体实例。"""
         model_name = _get_model_name(self.config, self.parent_model)
         model = create_chat_model(name=model_name, thinking_enabled=False)
 
         from deerflow.agents.middlewares.tool_error_handling_middleware import build_subagent_runtime_middlewares
 
-        # Reuse shared middleware composition with lead agent.
+        # 复用与主智能体共享的中间件组合
         middlewares = build_subagent_runtime_middlewares(lazy_init=True)
 
         return create_agent(
@@ -180,19 +184,19 @@ class SubagentExecutor:
         )
 
     def _build_initial_state(self, task: str) -> dict[str, Any]:
-        """Build the initial state for agent execution.
+        """构建智能体执行的初始状态。
 
         Args:
-            task: The task description.
+            task: 任务描述。
 
         Returns:
-            Initial state dictionary.
+            初始状态字典。
         """
         state: dict[str, Any] = {
             "messages": [HumanMessage(content=task)],
         }
 
-        # Pass through sandbox and thread data from parent
+        # 从父智能体传递沙箱和线程数据
         if self.sandbox_state is not None:
             state["sandbox"] = self.sandbox_state
         if self.thread_data is not None:
@@ -201,20 +205,20 @@ class SubagentExecutor:
         return state
 
     async def _aexecute(self, task: str, result_holder: SubagentResult | None = None) -> SubagentResult:
-        """Execute a task asynchronously.
+        """异步执行任务。
 
         Args:
-            task: The task description for the subagent.
-            result_holder: Optional pre-created result object to update during execution.
+            task: 子智能体的任务描述。
+            result_holder: 可选的预创建结果对象，在执行期间更新。
 
         Returns:
-            SubagentResult with the execution result.
+            包含执行结果的 SubagentResult。
         """
         if result_holder is not None:
-            # Use the provided result holder (for async execution with real-time updates)
+            # 使用提供的结果持有者（用于带实时更新的异步执行）
             result = result_holder
         else:
-            # Create a new result for synchronous execution
+            # 为同步执行创建新结果
             task_id = str(uuid.uuid4())[:8]
             result = SubagentResult(
                 task_id=task_id,
@@ -227,7 +231,7 @@ class SubagentExecutor:
             agent = self._create_agent()
             state = self._build_initial_state(task)
 
-            # Build config with thread_id for sandbox access and recursion limit
+            # 构建带有 thread_id 的配置以访问沙箱，并设置递归限制
             run_config: RunnableConfig = {
                 "recursion_limit": self.config.max_turns,
             }
@@ -238,22 +242,22 @@ class SubagentExecutor:
 
             logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} starting async execution with max_turns={self.config.max_turns}")
 
-            # Use stream instead of invoke to get real-time updates
-            # This allows us to collect AI messages as they are generated
+            # 使用流式处理而非 invoke 以获取实时更新
+            # 这使我们可以在生成时收集 AI 消息
             final_state = None
             async for chunk in agent.astream(state, config=run_config, context=context, stream_mode="values"):  # type: ignore[arg-type]
                 final_state = chunk
 
-                # Extract AI messages from the current state
+                # 从当前状态中提取 AI 消息
                 messages = chunk.get("messages", [])
                 if messages:
                     last_message = messages[-1]
-                    # Check if this is a new AI message
+                    # 检查是否为新的 AI 消息
                     if isinstance(last_message, AIMessage):
-                        # Convert message to dict for serialization
+                        # 将消息转换为字典以便序列化
                         message_dict = last_message.model_dump()
-                        # Only add if it's not already in the list (avoid duplicates)
-                        # Check by comparing message IDs if available, otherwise compare full dict
+                        # 仅添加不在列表中的消息（避免重复）
+                        # 如果有消息 ID 则通过 ID 比较，否则比较完整字典
                         message_id = message_dict.get("id")
                         is_duplicate = False
                         if message_id:
@@ -271,11 +275,11 @@ class SubagentExecutor:
                 logger.warning(f"[trace={self.trace_id}] Subagent {self.config.name} no final state")
                 result.result = "No response generated"
             else:
-                # Extract the final message - find the last AIMessage
+                # 提取最终消息 - 查找最后一条 AIMessage
                 messages = final_state.get("messages", [])
                 logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} final messages count: {len(messages)}")
 
-                # Find the last AIMessage in the conversation
+                # 在对话中查找最后一条 AIMessage
                 last_ai_message = None
                 for msg in reversed(messages):
                     if isinstance(msg, AIMessage):
@@ -284,13 +288,12 @@ class SubagentExecutor:
 
                 if last_ai_message is not None:
                     content = last_ai_message.content
-                    # Handle both str and list content types for the final result
+                    # 处理字符串和列表两种内容类型的结果
                     if isinstance(content, str):
                         result.result = content
                     elif isinstance(content, list):
-                        # Extract text from list of content blocks for final result only.
-                        # Concatenate raw string chunks directly, but preserve separation
-                        # between full text blocks for readability.
+                        # 从内容块列表中提取文本（仅用于最终结果）。
+                        # 原始字符串片段直接拼接，但完整文本块之间保留分隔以提高可读性。
                         text_parts = []
                         pending_str_parts = []
                         for block in content:
@@ -309,7 +312,7 @@ class SubagentExecutor:
                     else:
                         result.result = str(content)
                 elif messages:
-                    # Fallback: use the last message if no AIMessage found
+                    # 回退：如果没有找到 AIMessage，使用最后一条消息
                     last_message = messages[-1]
                     logger.warning(f"[trace={self.trace_id}] Subagent {self.config.name} no AIMessage found, using last message: {type(last_message)}")
                     raw_content = last_message.content if hasattr(last_message, "content") else str(last_message)
@@ -349,32 +352,32 @@ class SubagentExecutor:
         return result
 
     def execute(self, task: str, result_holder: SubagentResult | None = None) -> SubagentResult:
-        """Execute a task synchronously (wrapper around async execution).
+        """同步执行任务（异步执行的包装器）。
 
-        This method runs the async execution in a new event loop, allowing
-        asynchronous tools (like MCP tools) to be used within the thread pool.
+        此方法在新的事件循环中运行异步执行，允许在线程池中使用
+        异步工具（如 MCP 工具）。
 
         Args:
-            task: The task description for the subagent.
-            result_holder: Optional pre-created result object to update during execution.
+            task: 子智能体的任务描述。
+            result_holder: 可选的预创建结果对象，在执行期间更新。
 
         Returns:
-            SubagentResult with the execution result.
+            包含执行结果的 SubagentResult。
         """
-        # Run the async execution in a new event loop
-        # This is necessary because:
-        # 1. We may have async-only tools (like MCP tools)
-        # 2. We're running inside a ThreadPoolExecutor which doesn't have an event loop
+        # 在新的事件循环中运行异步执行
+        # 这是必要的，因为：
+        # 1. 我们可能有仅异步的工具（如 MCP 工具）
+        # 2. 我们在线程池中运行，线程池没有事件循环
         #
-        # Note: _aexecute() catches all exceptions internally, so this outer
-        # try-except only handles asyncio.run() failures (e.g., if called from
-        # an async context where an event loop already exists). Subagent execution
-        # errors are handled within _aexecute() and returned as FAILED status.
+        # 注意：_aexecute() 内部捕获了所有异常，因此这个外层
+        # try-except 仅处理 asyncio.run() 的失败（例如在已存在事件循环的
+        # 异步上下文中调用时）。子智能体执行错误在 _aexecute() 中处理，
+        # 以 FAILED 状态返回。
         try:
             return asyncio.run(self._aexecute(task, result_holder))
         except Exception as e:
             logger.exception(f"[trace={self.trace_id}] Subagent {self.config.name} execution failed")
-            # Create a result with error if we don't have one
+            # 如果没有结果对象则创建一个带错误的结果
             if result_holder is not None:
                 result = result_holder
             else:
@@ -389,20 +392,20 @@ class SubagentExecutor:
             return result
 
     def execute_async(self, task: str, task_id: str | None = None) -> str:
-        """Start a task execution in the background.
+        """在后台启动任务执行。
 
         Args:
-            task: The task description for the subagent.
-            task_id: Optional task ID to use. If not provided, a random UUID will be generated.
+            task: 子智能体的任务描述。
+            task_id: 可选的任务 ID。如果未提供，将生成随机 UUID。
 
         Returns:
-            Task ID that can be used to check status later.
+            可用于后续查询状态的任务 ID。
         """
-        # Use provided task_id or generate a new one
+        # 使用提供的 task_id 或生成新的
         if task_id is None:
             task_id = str(uuid.uuid4())[:8]
 
-        # Create initial pending result
+        # 创建初始等待结果
         result = SubagentResult(
             task_id=task_id,
             trace_id=self.trace_id,
@@ -414,7 +417,7 @@ class SubagentExecutor:
         with _background_tasks_lock:
             _background_tasks[task_id] = result
 
-        # Submit to scheduler pool
+        # 提交到调度线程池
         def run_task():
             with _background_tasks_lock:
                 _background_tasks[task_id].status = SubagentStatus.RUNNING
@@ -422,11 +425,11 @@ class SubagentExecutor:
                 result_holder = _background_tasks[task_id]
 
             try:
-                # Submit execution to execution pool with timeout
-                # Pass result_holder so execute() can update it in real-time
+                # 提交执行到执行池（带超时）
+                # 传递 result_holder 以便 execute() 可以实时更新
                 execution_future: Future = _execution_pool.submit(self.execute, task, result_holder)
                 try:
-                    # Wait for execution with timeout
+                    # 等待执行完成（带超时）
                     exec_result = execution_future.result(timeout=self.config.timeout_seconds)
                     with _background_tasks_lock:
                         _background_tasks[task_id].status = exec_result.status
@@ -440,7 +443,7 @@ class SubagentExecutor:
                         _background_tasks[task_id].status = SubagentStatus.TIMED_OUT
                         _background_tasks[task_id].error = f"Execution timed out after {self.config.timeout_seconds} seconds"
                         _background_tasks[task_id].completed_at = datetime.now()
-                    # Cancel the future (best effort - may not stop the actual execution)
+                    # 取消 future（尽力而为——可能无法停止实际执行）
                     execution_future.cancel()
             except Exception as e:
                 logger.exception(f"[trace={self.trace_id}] Subagent {self.config.name} async execution failed")
@@ -453,43 +456,39 @@ class SubagentExecutor:
         return task_id
 
 
-MAX_CONCURRENT_SUBAGENTS = 3
+MAX_CONCURRENT_SUBAGENTS = 3  # 最大并发子智能体数
 
 
 def get_background_task_result(task_id: str) -> SubagentResult | None:
-    """Get the result of a background task.
+    """获取后台任务的结果。
 
     Args:
-        task_id: The task ID returned by execute_async.
+        task_id: execute_async 返回的任务 ID。
 
     Returns:
-        SubagentResult if found, None otherwise.
+        如果找到则返回 SubagentResult，否则返回 None。
     """
     with _background_tasks_lock:
         return _background_tasks.get(task_id)
 
 
 def list_background_tasks() -> list[SubagentResult]:
-    """List all background tasks.
-
-    Returns:
-        List of all SubagentResult instances.
-    """
+    """列出所有后台任务。"""
     with _background_tasks_lock:
         return list(_background_tasks.values())
 
 
 def cleanup_background_task(task_id: str) -> None:
-    """Remove a completed task from background tasks.
+    """从后台任务中移除已完成的任务。
 
-    Should be called by task_tool after it finishes polling and returns the result.
-    This prevents memory leaks from accumulated completed tasks.
+    应在 task_tool 完成轮询并返回结果后调用，
+    以防止累积已完成任务导致内存泄漏。
 
-    Only removes tasks that are in a terminal state (COMPLETED/FAILED/TIMED_OUT)
-    to avoid race conditions with the background executor still updating the task entry.
+    仅移除处于终态（COMPLETED/FAILED/TIMED_OUT）的任务，
+    以避免与仍在更新任务条目的后台执行器产生竞态条件。
 
     Args:
-        task_id: The task ID to remove.
+        task_id: 要移除的任务 ID。
     """
     with _background_tasks_lock:
         result = _background_tasks.get(task_id)

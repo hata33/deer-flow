@@ -1,4 +1,4 @@
-"""Subagent registry for managing available subagents."""
+"""子智能体注册表，管理可用的子智能体。"""
 
 import logging
 from dataclasses import replace
@@ -11,19 +11,19 @@ logger = logging.getLogger(__name__)
 
 
 def get_subagent_config(name: str) -> SubagentConfig | None:
-    """Get a subagent configuration by name, with config.yaml overrides applied.
+    """按名称获取子智能体配置，并应用 config.yaml 中的覆盖设置。
 
     Args:
-        name: The name of the subagent.
+        name: 子智能体名称。
 
     Returns:
-        SubagentConfig if found (with any config.yaml overrides applied), None otherwise.
+        如果找到则返回 SubagentConfig（已应用 config.yaml 覆盖），否则返回 None。
     """
     config = BUILTIN_SUBAGENTS.get(name)
     if config is None:
         return None
 
-    # Apply timeout override from config.yaml (lazy import to avoid circular deps)
+    # 从 config.yaml 应用超时覆盖（延迟导入以避免循环依赖）
     from deerflow.config.subagents_config import get_subagents_app_config
 
     app_config = get_subagents_app_config()
@@ -36,28 +36,20 @@ def get_subagent_config(name: str) -> SubagentConfig | None:
 
 
 def list_subagents() -> list[SubagentConfig]:
-    """List all available subagent configurations (with config.yaml overrides applied).
-
-    Returns:
-        List of all registered SubagentConfig instances.
-    """
+    """列出所有可用的子智能体配置（已应用 config.yaml 覆盖）。"""
     return [get_subagent_config(name) for name in BUILTIN_SUBAGENTS]
 
 
 def get_subagent_names() -> list[str]:
-    """Get all available subagent names.
-
-    Returns:
-        List of subagent names.
-    """
+    """获取所有可用的子智能体名称。"""
     return list(BUILTIN_SUBAGENTS.keys())
 
 
 def get_available_subagent_names() -> list[str]:
-    """Get subagent names that should be exposed to the active runtime.
+    """获取在当前运行时中应暴露的子智能体名称。
 
-    Returns:
-        List of subagent names visible to the current sandbox configuration.
+    根据当前沙箱配置决定哪些子智能体可见（例如 bash 子智能体在主机
+    不允许 bash 时会被隐藏）。
     """
     names = list(BUILTIN_SUBAGENTS.keys())
     try:
