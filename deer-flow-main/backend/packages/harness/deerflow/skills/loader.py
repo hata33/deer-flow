@@ -1,3 +1,13 @@
+"""技能加载器。
+
+扫描 public 和 custom 目录树，发现所有包含 SKILL.md 的子目录，
+解析元数据并合并 extensions_config.json 中的启用状态。
+支持按启用状态过滤，返回排序后的技能列表。
+
+注意：启用状态使用 ExtensionsConfig.from_file() 每次从磁盘读取，
+确保 Gateway API（独立进程）的修改能立即反映到 LangGraph Server。
+"""
+
 import logging
 import os
 from pathlib import Path
@@ -9,35 +19,35 @@ logger = logging.getLogger(__name__)
 
 
 def get_skills_root_path() -> Path:
-    """
-    Get the root path of the skills directory.
+    """获取技能根目录的默认路径（deer-flow/skills）。
+
+    通过文件位置反推：loader.py 位于 packages/harness/deerflow/skills/，
+    向上 5 级到达 backend/，再取父目录的 skills/ 子目录。
 
     Returns:
-        Path to the skills directory (deer-flow/skills)
+        技能根目录路径。
     """
-    # loader.py lives at packages/harness/deerflow/skills/loader.py — 5 parents up reaches backend/
+    # loader.py 位于 packages/harness/deerflow/skills/loader.py
+    # 向上 5 级: loader.py → skills/ → deerflow/ → harness/ → packages/ → backend/
     backend_dir = Path(__file__).resolve().parent.parent.parent.parent.parent
-    # skills directory is sibling to backend directory
+    # skills 目录与 backend 目录平级
     skills_dir = backend_dir.parent / "skills"
     return skills_dir
 
 
 def load_skills(skills_path: Path | None = None, use_config: bool = True, enabled_only: bool = False) -> list[Skill]:
-    """
-    Load all skills from the skills directory.
+    """扫描并加载所有技能。
 
-    Scans both public and custom skill directories, parsing SKILL.md files
-    to extract metadata. The enabled state is determined by the skills_state_config.json file.
+    遍历 skills_path 下的 public/ 和 custom/ 目录，递归查找所有
+    包含 SKILL.md 文件的子目录，解析元数据并合并启用状态。
 
     Args:
-        skills_path: Optional custom path to skills directory.
-                     If not provided and use_config is True, uses path from config.
-                     Otherwise defaults to deer-flow/skills
-        use_config: Whether to load skills path from config (default: True)
-        enabled_only: If True, only return enabled skills (default: False)
+        skills_path: 自定义技能目录路径，为 None 时从配置或默认路径加载。
+        use_config: 是否从应用配置中读取技能路径，默认 True。
+        enabled_only: 是否只返回已启用的技能，默认 False。
 
     Returns:
-        List of Skill objects, sorted by name
+        按名称排序的 Skill 实例列表。
     """
     if skills_path is None:
         if use_config:
@@ -47,7 +57,7 @@ def load_skills(skills_path: Path | None = None, use_config: bool = True, enable
                 config = get_app_config()
                 skills_path = config.skills.get_skills_path()
             except Exception:
-                # Fallback to default if config fails
+                # 配置加载失败时回退到默认路径
                 skills_path = get_skills_root_path()
         else:
             skills_path = get_skills_root_path()
@@ -57,14 +67,14 @@ def load_skills(skills_path: Path | None = None, use_config: bool = True, enable
 
     skills = []
 
-    # Scan public and custom directories
+    # 扫描 public 和 custom 两个类别目录
     for category in ["public", "custom"]:
         category_path = skills_path / category
         if not category_path.exists() or not category_path.is_dir():
             continue
 
         for current_root, dir_names, file_names in os.walk(category_path, followlinks=True):
-            # Keep traversal deterministic and skip hidden directories.
+            # 保持遍历确定性，跳过隐藏目录
             dir_names[:] = sorted(name for name in dir_names if not name.startswith("."))
             if "SKILL.md" not in file_names:
                 continue
@@ -76,11 +86,9 @@ def load_skills(skills_path: Path | None = None, use_config: bool = True, enable
             if skill:
                 skills.append(skill)
 
-    # Load skills state configuration and update enabled status
-    # NOTE: We use ExtensionsConfig.from_file() instead of get_extensions_config()
-    # to always read the latest configuration from disk. This ensures that changes
-    # made through the Gateway API (which runs in a separate process) are immediately
-    # reflected in the LangGraph Server when loading skills.
+    # 从磁盘读取最新的启用状态配置
+    # 使用 ExtensionsConfig.from_file() 而非缓存的 get_extensions_config()，
+    # 确保 Gateway API（独立进程）的修改能立即反映到 LangGraph Server
     try:
         from deerflow.config.extensions_config import ExtensionsConfig
 
@@ -88,14 +96,14 @@ def load_skills(skills_path: Path | None = None, use_config: bool = True, enable
         for skill in skills:
             skill.enabled = extensions_config.is_skill_enabled(skill.name, skill.category)
     except Exception as e:
-        # If config loading fails, default to all enabled
+        # 配置加载失败时默认全部启用
         logger.warning("Failed to load extensions config: %s", e)
 
-    # Filter by enabled status if requested
+    # 按启用状态过滤
     if enabled_only:
         skills = [skill for skill in skills if skill.enabled]
 
-    # Sort by name for consistent ordering
+    # 按名称排序，确保输出顺序一致
     skills.sort(key=lambda s: s.name)
 
     return skills

@@ -1,7 +1,12 @@
-"""Shared upload management logic.
+"""文件上传管理核心逻辑。
 
-Pure business logic — no FastAPI/HTTP dependencies.
-Both Gateway and Client delegate to these functions.
+纯业务逻辑——无 FastAPI/HTTP 依赖。
+Gateway 和 Client 共用此模块进行文件上传、列表、删除等操作。
+
+安全防护：
+- thread_id 校验：仅允许字母、数字、连字符、下划线、点号
+- 文件名规范化：去除目录组件，拒绝遍历模式（..）
+- 路径遍历校验：确保所有文件操作在允许的基础目录内
 """
 
 import os
@@ -13,57 +18,72 @@ from deerflow.config.paths import VIRTUAL_PATH_PREFIX, get_paths
 
 
 class PathTraversalError(ValueError):
-    """Raised when a path escapes its allowed base directory."""
+    """路径遍历攻击异常，当路径逃出允许的基础目录时抛出。"""
 
 
-# thread_id must be alphanumeric, hyphens, underscores, or dots only.
+# thread_id 安全校验：仅允许字母、数字、连字符、下划线、点号
 _SAFE_THREAD_ID = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 
 def validate_thread_id(thread_id: str) -> None:
-    """Reject thread IDs containing characters unsafe for filesystem paths.
+    """校验线程 ID 的安全性，拒绝包含文件系统不安全字符的 ID。
 
     Raises:
-        ValueError: If thread_id is empty or contains unsafe characters.
+        ValueError: 线程 ID 为空或包含不安全字符。
     """
     if not thread_id or not _SAFE_THREAD_ID.match(thread_id):
         raise ValueError(f"Invalid thread_id: {thread_id!r}")
 
 
 def get_uploads_dir(thread_id: str) -> Path:
-    """Return the uploads directory path for a thread (no side effects)."""
+    """获取线程上传目录路径（无副作用，不创建目录）。
+
+    Args:
+        thread_id: 线程 ID。
+
+    Returns:
+        上传目录的绝对路径。
+    """
     validate_thread_id(thread_id)
     return get_paths().sandbox_uploads_dir(thread_id)
 
 
 def ensure_uploads_dir(thread_id: str) -> Path:
-    """Return the uploads directory for a thread, creating it if needed."""
+    """确保线程上传目录存在，不存在时递归创建。
+
+    Args:
+        thread_id: 线程 ID。
+
+    Returns:
+        上传目录的绝对路径。
+    """
     base = get_uploads_dir(thread_id)
     base.mkdir(parents=True, exist_ok=True)
     return base
 
 
 def normalize_filename(filename: str) -> str:
-    """Sanitize a filename by extracting its basename.
+    """规范化文件名，提取纯文件名并拒绝不安全模式。
 
-    Strips any directory components and rejects traversal patterns.
+    去除目录组件（Path.name），拒绝空名、点号遍历（. 和 ..）、
+    反斜杠（Windows 风格路径注入），以及超过 255 字节的文件名。
 
     Args:
-        filename: Raw filename from user input (may contain path components).
+        filename: 用户输入的原始文件名（可能包含路径组件）。
 
     Returns:
-        Safe filename (basename only).
+        安全的纯文件名。
 
     Raises:
-        ValueError: If filename is empty or resolves to a traversal pattern.
+        ValueError: 文件名为空、不安全或过长。
     """
     if not filename:
         raise ValueError("Filename is empty")
     safe = Path(filename).name
     if not safe or safe in {".", ".."}:
         raise ValueError(f"Filename is unsafe: {filename!r}")
-    # Reject backslashes — on Linux Path.name keeps them as literal chars,
-    # but they indicate a Windows-style path that should be stripped or rejected.
+    # 拒绝反斜杠——Linux 上 Path.name 保留为字面字符，
+    # 但反斜杠暗示 Windows 风格路径注入
     if "\\" in safe:
         raise ValueError(f"Filename contains backslash: {filename!r}")
     if len(safe.encode("utf-8")) > 255:
@@ -72,16 +92,16 @@ def normalize_filename(filename: str) -> str:
 
 
 def claim_unique_filename(name: str, seen: set[str]) -> str:
-    """Generate a unique filename by appending ``_N`` suffix on collision.
+    """生成不重复的文件名，冲突时追加 _N 后缀。
 
-    Automatically adds the returned name to *seen* so callers don't need to.
+    自动将返回的文件名加入 seen 集合，调用方无需额外处理。
 
     Args:
-        name: Candidate filename.
-        seen: Set of filenames already claimed (mutated in place).
+        name: 候选文件名。
+        seen: 已占用的文件名集合（会被原地修改）。
 
     Returns:
-        A filename not present in *seen* (already added to *seen*).
+        不与 seen 冲突的文件名（已加入 seen）。
     """
     if name not in seen:
         seen.add(name)
@@ -97,10 +117,14 @@ def claim_unique_filename(name: str, seen: set[str]) -> str:
 
 
 def validate_path_traversal(path: Path, base: Path) -> None:
-    """Verify that *path* is inside *base*.
+    """验证路径位于基础目录内，防止路径遍历攻击。
+
+    Args:
+        path: 待验证的路径。
+        base: 允许的基础目录。
 
     Raises:
-        PathTraversalError: If a path traversal is detected.
+        PathTraversalError: 路径逃出基础目录。
     """
     try:
         path.resolve().relative_to(base.resolve())
@@ -109,16 +133,14 @@ def validate_path_traversal(path: Path, base: Path) -> None:
 
 
 def list_files_in_dir(directory: Path) -> dict:
-    """List files (not directories) in *directory*.
+    """列出目录中的所有文件（不含子目录），按名称排序。
 
     Args:
-        directory: Directory to scan.
+        directory: 待扫描的目录。
 
     Returns:
-        Dict with "files" list (sorted by name) and "count".
-        Each file entry has ``size`` as *int* (bytes).  Call
-        :func:`enrich_file_listing` to stringify sizes and add
-        virtual / artifact URLs.
+        包含 "files" 列表和 "count" 的字典。
+        每个文件条目包含 filename、size（int 字节）、path、extension、modified。
     """
     if not directory.is_dir():
         return {"files": [], "count": 0}
@@ -142,23 +164,22 @@ def list_files_in_dir(directory: Path) -> dict:
 
 
 def delete_file_safe(base_dir: Path, filename: str, *, convertible_extensions: set[str] | None = None) -> dict:
-    """Delete a file inside *base_dir* after path-traversal validation.
+    """安全删除文件，包含路径遍历验证和伴随文件清理。
 
-    If *convertible_extensions* is provided and the file's extension matches,
-    the companion ``.md`` file is also removed (if it exists).
+    删除前验证路径不越界。若提供了 convertible_extensions 且文件扩展名匹配，
+    同时删除转换时生成的伴随 .md 文件。
 
     Args:
-        base_dir: Directory containing the file.
-        filename: Name of file to delete.
-        convertible_extensions: Lowercase extensions (e.g. ``{".pdf", ".docx"}``)
-            whose companion markdown should be cleaned up.
+        base_dir: 文件所在的基础目录。
+        filename: 待删除的文件名。
+        convertible_extensions: 需要清理伴随 .md 文件的扩展名集合。
 
     Returns:
-        Dict with success and message.
+        包含 success 和 message 的字典。
 
     Raises:
-        FileNotFoundError: If the file does not exist.
-        PathTraversalError: If path traversal is detected.
+        FileNotFoundError: 文件不存在。
+        PathTraversalError: 路径遍历检测。
     """
     file_path = (base_dir / filename).resolve()
     validate_path_traversal(file_path, base_dir)
@@ -168,7 +189,7 @@ def delete_file_safe(base_dir: Path, filename: str, *, convertible_extensions: s
 
     file_path.unlink()
 
-    # Clean up companion markdown generated during upload conversion.
+    # 清理上传转换时生成的伴随 Markdown 文件
     if convertible_extensions and file_path.suffix.lower() in convertible_extensions:
         file_path.with_suffix(".md").unlink(missing_ok=True)
 
@@ -176,22 +197,41 @@ def delete_file_safe(base_dir: Path, filename: str, *, convertible_extensions: s
 
 
 def upload_artifact_url(thread_id: str, filename: str) -> str:
-    """Build the artifact URL for a file in a thread's uploads directory.
+    """构建上传文件的产物访问 URL，文件名经 percent 编码。
 
-    *filename* is percent-encoded so that spaces, ``#``, ``?`` etc. are safe.
+    Args:
+        thread_id: 线程 ID。
+        filename: 文件名。
+
+    Returns:
+        产物 URL 路径。
     """
     return f"/api/threads/{thread_id}/artifacts{VIRTUAL_PATH_PREFIX}/uploads/{quote(filename, safe='')}"
 
 
 def upload_virtual_path(filename: str) -> str:
-    """Build the virtual path for a file in the uploads directory."""
+    """构建上传文件的虚拟路径。
+
+    Args:
+        filename: 文件名。
+
+    Returns:
+        虚拟路径字符串。
+    """
     return f"{VIRTUAL_PATH_PREFIX}/uploads/{filename}"
 
 
 def enrich_file_listing(result: dict, thread_id: str) -> dict:
-    """Add virtual paths, artifact URLs, and stringify sizes on a listing result.
+    """为文件列表结果添加虚拟路径、产物 URL，并将 size 转为字符串。
 
-    Mutates *result* in place and returns it for convenience.
+    原地修改 result 并返回。
+
+    Args:
+        result: list_files_in_dir 的返回值。
+        thread_id: 线程 ID。
+
+    Returns:
+        丰富后的文件列表字典。
     """
     for f in result["files"]:
         filename = f["filename"]

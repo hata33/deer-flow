@@ -1,4 +1,11 @@
-"""GuardrailMiddleware - evaluates tool calls against a GuardrailProvider before execution."""
+"""GuardrailMiddleware — 工具调用前置授权中间件。
+
+在中间件链中拦截每个工具调用，通过 GuardrailProvider 进行策略评估。
+被拒绝的调用返回错误 ToolMessage，Agent 可据此调整行为。
+Provider 抛出异常时，行为取决于 fail_closed 配置：
+- True（默认）：阻止调用（fail-closed 安全策略）
+- False：放行调用并记录警告
+"""
 
 import logging
 from collections.abc import Awaitable, Callable
@@ -18,12 +25,16 @@ logger = logging.getLogger(__name__)
 
 
 class GuardrailMiddleware(AgentMiddleware[AgentState]):
-    """Evaluate tool calls against a GuardrailProvider before execution.
+    """工具调用前置授权中间件。
 
-    Denied calls return an error ToolMessage so the agent can adapt.
-    If the provider raises, behavior depends on fail_closed:
-      - True (default): block the call
-      - False: allow it through with a warning
+    在工具执行前通过 GuardrailProvider 评估调用合规性。
+    被拒绝的调用返回错误 ToolMessage，包含拒绝原因和替代建议。
+    Provider 异常时遵循 fail_closed 策略：默认阻止调用（安全优先）。
+
+    Attributes:
+        provider: 授权策略 provider 实例。
+        fail_closed: provider 异常时是否阻止调用（默认 True，安全优先）。
+        passport: 传递给 provider 的智能体标识。
     """
 
     def __init__(self, provider: GuardrailProvider, *, fail_closed: bool = True, passport: str | None = None):
@@ -32,6 +43,7 @@ class GuardrailMiddleware(AgentMiddleware[AgentState]):
         self.passport = passport
 
     def _build_request(self, request: ToolCallRequest) -> GuardrailRequest:
+        """从工具调用请求构建 GuardrailRequest。"""
         return GuardrailRequest(
             tool_name=str(request.tool_call.get("name", "")),
             tool_input=request.tool_call.get("args", {}),
@@ -40,6 +52,7 @@ class GuardrailMiddleware(AgentMiddleware[AgentState]):
         )
 
     def _build_denied_message(self, request: ToolCallRequest, decision: GuardrailDecision) -> ToolMessage:
+        """构建拒绝的工具消息，包含原因代码和替代建议。"""
         tool_name = str(request.tool_call.get("name", "unknown_tool"))
         tool_call_id = str(request.tool_call.get("id", "missing_id"))
         reason_text = decision.reasons[0].message if decision.reasons else "blocked by guardrail policy"
@@ -57,11 +70,12 @@ class GuardrailMiddleware(AgentMiddleware[AgentState]):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], ToolMessage | Command],
     ) -> ToolMessage | Command:
+        """同步拦截工具调用，评估合规性。"""
         gr = self._build_request(request)
         try:
             decision = self.provider.evaluate(gr)
         except GraphBubbleUp:
-            # Preserve LangGraph control-flow signals (interrupt/pause/resume).
+            # 保留 LangGraph 控制流信号（interrupt/pause/resume）
             raise
         except Exception:
             logger.exception("Guardrail provider error (sync)")
@@ -80,11 +94,11 @@ class GuardrailMiddleware(AgentMiddleware[AgentState]):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
+        """异步拦截工具调用，评估合规性。"""
         gr = self._build_request(request)
         try:
             decision = await self.provider.aevaluate(gr)
         except GraphBubbleUp:
-            # Preserve LangGraph control-flow signals (interrupt/pause/resume).
             raise
         except Exception:
             logger.exception("Guardrail provider error (async)")

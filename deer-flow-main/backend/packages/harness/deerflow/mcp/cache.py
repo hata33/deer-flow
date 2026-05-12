@@ -1,4 +1,12 @@
-"""Cache for MCP tools to avoid repeated loading."""
+"""MCP 工具缓存管理。
+
+通过 mtime（文件修改时间）检测配置变更，实现：
+- 启动时初始化（initialize_mcp_tools）
+- 运行时懒加载（get_cached_mcp_tools）
+- 配置变更时自动失效并重新加载
+
+确保 Gateway API（独立进程）的配置修改能立即反映到 LangGraph Server。
+"""
 
 import asyncio
 import logging
@@ -8,17 +16,18 @@ from langchain_core.tools import BaseTool
 
 logger = logging.getLogger(__name__)
 
+# 全局缓存状态
 _mcp_tools_cache: list[BaseTool] | None = None
 _cache_initialized = False
-_initialization_lock = asyncio.Lock()
-_config_mtime: float | None = None  # Track config file modification time
+_initialization_lock = asyncio.Lock()  # 防止并发初始化
+_config_mtime: float | None = None  # 配置文件的修改时间戳
 
 
 def _get_config_mtime() -> float | None:
-    """Get the modification time of the extensions config file.
+    """获取扩展配置文件的修改时间。
 
     Returns:
-        The modification time as a float, or None if the file doesn't exist.
+        文件修改时间戳，文件不存在时返回 None。
     """
     from deerflow.config.extensions_config import ExtensionsConfig
 
@@ -29,23 +38,24 @@ def _get_config_mtime() -> float | None:
 
 
 def _is_cache_stale() -> bool:
-    """Check if the cache is stale due to config file changes.
+    """检查缓存是否因配置文件变更而过期。
+
+    比较当前配置文件 mtime 与缓存记录的 mtime，
+    若文件已被修改则缓存过期。
 
     Returns:
-        True if the cache should be invalidated, False otherwise.
+        缓存是否过期。
     """
     global _config_mtime
 
     if not _cache_initialized:
-        return False  # Not initialized yet, not stale
+        return False  # 未初始化，不算过期
 
     current_mtime = _get_config_mtime()
 
-    # If we couldn't get mtime before or now, assume not stale
     if _config_mtime is None or current_mtime is None:
         return False
 
-    # If the config file has been modified since we cached, it's stale
     if current_mtime > _config_mtime:
         logger.info(f"MCP config file has been modified (mtime: {_config_mtime} -> {current_mtime}), cache is stale")
         return True
@@ -54,12 +64,12 @@ def _is_cache_stale() -> bool:
 
 
 async def initialize_mcp_tools() -> list[BaseTool]:
-    """Initialize and cache MCP tools.
+    """初始化并缓存 MCP 工具，应在应用启动时调用一次。
 
-    This should be called once at application startup.
+    使用 asyncio.Lock 防止并发初始化，确保只执行一次。
 
     Returns:
-        List of LangChain tools from all enabled MCP servers.
+        从所有已启用 MCP 服务器加载的工具列表。
     """
     global _mcp_tools_cache, _cache_initialized, _config_mtime
 
@@ -73,29 +83,24 @@ async def initialize_mcp_tools() -> list[BaseTool]:
         logger.info("Initializing MCP tools...")
         _mcp_tools_cache = await get_mcp_tools()
         _cache_initialized = True
-        _config_mtime = _get_config_mtime()  # Record config file mtime
+        _config_mtime = _get_config_mtime()  # 记录配置文件 mtime
         logger.info(f"MCP tools initialized: {len(_mcp_tools_cache)} tool(s) loaded (config mtime: {_config_mtime})")
 
         return _mcp_tools_cache
 
 
 def get_cached_mcp_tools() -> list[BaseTool]:
-    """Get cached MCP tools with lazy initialization.
+    """获取缓存的 MCP 工具，支持懒初始化和配置变更自动重载。
 
-    If tools are not initialized, automatically initializes them.
-    This ensures MCP tools work in both FastAPI and LangGraph Studio contexts.
-
-    Also checks if the config file has been modified since last initialization,
-    and re-initializes if needed. This ensures that changes made through the
-    Gateway API (which runs in a separate process) are reflected in the
-    LangGraph Server.
+    若工具未初始化，自动在当前或新事件循环中执行初始化。
+    若配置文件已被修改（mtime 检测），自动重置并重新初始化。
 
     Returns:
-        List of cached MCP tools.
+        缓存的 MCP 工具列表。
     """
     global _cache_initialized
 
-    # Check if cache is stale due to config file changes
+    # 检查配置文件是否已变更
     if _is_cache_stale():
         logger.info("MCP cache is stale, resetting for re-initialization...")
         reset_mcp_tools_cache()
@@ -103,21 +108,18 @@ def get_cached_mcp_tools() -> list[BaseTool]:
     if not _cache_initialized:
         logger.info("MCP tools not initialized, performing lazy initialization...")
         try:
-            # Try to initialize in the current event loop
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                # If loop is already running (e.g., in LangGraph Studio),
-                # we need to create a new loop in a thread
+                # 已有事件循环运行时（如 LangGraph Studio），在新线程中初始化
                 import concurrent.futures
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(asyncio.run, initialize_mcp_tools())
                     future.result()
             else:
-                # If no loop is running, we can use the current loop
                 loop.run_until_complete(initialize_mcp_tools())
         except RuntimeError:
-            # No event loop exists, create one
+            # 无事件循环，创建新的
             asyncio.run(initialize_mcp_tools())
         except Exception as e:
             logger.error(f"Failed to lazy-initialize MCP tools: {e}")
@@ -127,10 +129,7 @@ def get_cached_mcp_tools() -> list[BaseTool]:
 
 
 def reset_mcp_tools_cache() -> None:
-    """Reset the MCP tools cache.
-
-    This is useful for testing or when you want to reload MCP tools.
-    """
+    """重置 MCP 工具缓存，用于测试或强制重新加载。"""
     global _mcp_tools_cache, _cache_initialized, _config_mtime
     _mcp_tools_cache = None
     _cache_initialized = False

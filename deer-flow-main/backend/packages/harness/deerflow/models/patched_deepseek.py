@@ -1,10 +1,11 @@
-"""Patched ChatDeepSeek that preserves reasoning_content in multi-turn conversations.
+"""DeepSeek 模型补丁——修复多轮对话中 reasoning_content 丢失的问题。
 
-This module provides a patched version of ChatDeepSeek that properly handles
-reasoning_content when sending messages back to the API. The original implementation
-stores reasoning_content in additional_kwargs but doesn't include it when making
-subsequent API calls, which causes errors with APIs that require reasoning_content
-on all assistant messages when thinking mode is enabled.
+原版 ChatDeepSeek 将 reasoning_content 存储在 additional_kwargs 中，
+但在后续 API 调用时不会将其包含在请求载荷中，导致启用了思考模式的 API
+要求所有 assistant 消息都携带 reasoning_content 时报错。
+
+本补丁在 _get_request_payload 中将 additional_kwargs 里的 reasoning_content
+重新注入到请求载荷的 assistant 消息中。
 """
 
 from typing import Any

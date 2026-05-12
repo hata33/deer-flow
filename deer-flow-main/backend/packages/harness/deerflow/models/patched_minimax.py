@@ -1,13 +1,13 @@
-"""Patched ChatOpenAI adapter for MiniMax reasoning output.
+"""MiniMax 模型补丁——保留推理输出并映射到标准格式。
 
-MiniMax's OpenAI-compatible chat completions API can return structured
-``reasoning_details`` when ``extra_body.reasoning_split=true`` is enabled.
-``langchain_openai.ChatOpenAI`` currently ignores that field, so DeerFlow's
-frontend never receives reasoning content in the shape it expects.
+MiniMax 的 OpenAI 兼容 API 在 extra_body.reasoning_split=true 时返回
+结构化的 reasoning_details，但 langchain_openai.ChatOpenAI 忽略该字段，
+导致前端无法收到推理内容。
 
-This adapter preserves ``reasoning_split`` in the request payload and maps the
-provider-specific reasoning field into ``additional_kwargs.reasoning_content``,
-which DeerFlow already understands.
+本补丁：
+- 在请求载荷中注入 reasoning_split=true
+- 将 reasoning_details 映射到 additional_kwargs.reasoning_content
+- 处理内联 <think/> 标签的推理内容
 """
 
 from __future__ import annotations

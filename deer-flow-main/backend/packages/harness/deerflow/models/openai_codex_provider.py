@@ -1,14 +1,14 @@
-"""Custom OpenAI Codex provider using ChatGPT Codex Responses API.
+"""Codex 模型提供者——使用 ChatGPT Codex Responses API。
 
-Uses Codex CLI OAuth tokens with chatgpt.com/backend-api/codex/responses endpoint.
-This is the same endpoint that the Codex CLI uses internally.
+通过 Codex CLI OAuth token 连接 chatgpt.com/backend-api/codex/responses 端点，
+与 Codex CLI 内部使用的端点相同。
 
-Supports:
-- Auto-load credentials from ~/.codex/auth.json
-- Responses API format (not Chat Completions)
-- Tool calling
-- Streaming (required by the endpoint)
-- Retry with exponential backoff
+支持：
+- 自动从 ~/.codex/auth.json 加载凭据
+- Responses API 格式（非 Chat Completions）
+- 工具调用（function calling）
+- SSE 流式响应（端点要求）
+- 指数退避重试
 """
 
 import json

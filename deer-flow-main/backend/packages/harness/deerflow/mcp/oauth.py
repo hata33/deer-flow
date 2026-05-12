@@ -1,4 +1,14 @@
-"""OAuth token support for MCP HTTP/SSE servers."""
+"""MCP HTTP/SSE 服务器的 OAuth token 支持。
+
+支持两种 OAuth 授权流程：
+- client_credentials: 客户端凭据授权（需要 client_id + client_secret）
+- refresh_token: 刷新令牌授权（需要 refresh_token）
+
+功能：
+- Token 缓存与自动刷新（提前刷新，避免过期）
+- 每服务器的并发控制（asyncio.Lock 防止并发刷新）
+- 工具调用拦截器（每次工具调用时注入 Authorization 头）
+"""
 
 from __future__ import annotations
 
@@ -15,7 +25,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class _OAuthToken:
-    """Cached OAuth token."""
+    """缓存的 OAuth token。
+
+    Attributes:
+        access_token: 访问令牌。
+        token_type: 令牌类型（如 "Bearer"）。
+        expires_at: 过期时间。
+    """
 
     access_token: str
     token_type: str
@@ -23,7 +39,16 @@ class _OAuthToken:
 
 
 class OAuthTokenManager:
-    """Acquire/cache/refresh OAuth tokens for MCP servers."""
+    """OAuth token 获取、缓存和刷新管理器。
+
+    为每个 MCP 服务器维护独立的 token 缓存和刷新锁，
+    支持提前刷新（refresh_skew_seconds）避免 token 在使用时过期。
+
+    Attributes:
+        _oauth_by_server: 服务器名到 OAuth 配置的映射。
+        _tokens: 服务器名到缓存 token 的映射。
+        _locks: 服务器名到 asyncio.Lock 的映射（防止并发刷新）。
+    """
 
     def __init__(self, oauth_by_server: dict[str, McpOAuthConfig]):
         self._oauth_by_server = oauth_by_server
@@ -32,6 +57,14 @@ class OAuthTokenManager:
 
     @classmethod
     def from_extensions_config(cls, extensions_config: ExtensionsConfig) -> OAuthTokenManager:
+        """从扩展配置中提取所有启用了 OAuth 的 MCP 服务器配置。
+
+        Args:
+            extensions_config: 扩展配置。
+
+        Returns:
+            OAuthTokenManager 实例。
+        """
         oauth_by_server: dict[str, McpOAuthConfig] = {}
         for server_name, server_config in extensions_config.get_enabled_mcp_servers().items():
             if server_config.oauth and server_config.oauth.enabled:
@@ -39,12 +72,25 @@ class OAuthTokenManager:
         return cls(oauth_by_server)
 
     def has_oauth_servers(self) -> bool:
+        """是否存在需要 OAuth 认证的服务器。"""
         return bool(self._oauth_by_server)
 
     def oauth_server_names(self) -> list[str]:
+        """返回需要 OAuth 认证的服务器名称列表。"""
         return list(self._oauth_by_server.keys())
 
     async def get_authorization_header(self, server_name: str) -> str | None:
+        """获取指定服务器的 Authorization 请求头值。
+
+        先检查缓存 token 是否有效，过期则通过锁保护刷新。
+        使用双重检查模式（lock 外检查一次，lock 内再检查一次）避免不必要的刷新。
+
+        Args:
+            server_name: MCP 服务器名称。
+
+        Returns:
+            Authorization 头值（如 "Bearer xxx"），无需 OAuth 时返回 None。
+        """
         oauth = self._oauth_by_server.get(server_name)
         if not oauth:
             return None
@@ -53,6 +99,7 @@ class OAuthTokenManager:
         if token and not self._is_expiring(token, oauth):
             return f"{token.token_type} {token.access_token}"
 
+        # 通过锁保护刷新，防止并发重复请求
         lock = self._locks[server_name]
         async with lock:
             token = self._tokens.get(server_name)
@@ -66,10 +113,25 @@ class OAuthTokenManager:
 
     @staticmethod
     def _is_expiring(token: _OAuthToken, oauth: McpOAuthConfig) -> bool:
+        """检查 token 是否即将过期（考虑 refresh_skew_seconds 提前量）。"""
         now = datetime.now(UTC)
         return token.expires_at <= now + timedelta(seconds=max(oauth.refresh_skew_seconds, 0))
 
     async def _fetch_token(self, oauth: McpOAuthConfig) -> _OAuthToken:
+        """通过 HTTP POST 请求获取新的 OAuth token。
+
+        根据 grant_type 构建不同的请求参数，
+        解析响应中的 token、类型和过期时间。
+
+        Args:
+            oauth: OAuth 配置。
+
+        Returns:
+            新获取的 OAuth token。
+
+        Raises:
+            ValueError: grant_type 不支持或缺少必要参数。
+        """
         import httpx  # pyright: ignore[reportMissingImports]
 
         data: dict[str, str] = {
@@ -103,6 +165,7 @@ class OAuthTokenManager:
             response.raise_for_status()
             payload = response.json()
 
+        # 从响应中提取 token，支持自定义字段名
         access_token = payload.get(oauth.token_field)
         if not access_token:
             raise ValueError(f"OAuth token response missing '{oauth.token_field}'")
@@ -120,7 +183,16 @@ class OAuthTokenManager:
 
 
 def build_oauth_tool_interceptor(extensions_config: ExtensionsConfig) -> Any | None:
-    """Build a tool interceptor that injects OAuth Authorization headers."""
+    """构建 OAuth 工具调用拦截器，每次工具调用时注入 Authorization 头。
+
+    无需 OAuth 的服务器不会生成拦截器。
+
+    Args:
+        extensions_config: 扩展配置。
+
+    Returns:
+        拦截器异步函数，无需 OAuth 时返回 None。
+    """
     token_manager = OAuthTokenManager.from_extensions_config(extensions_config)
     if not token_manager.has_oauth_servers():
         return None
@@ -138,7 +210,16 @@ def build_oauth_tool_interceptor(extensions_config: ExtensionsConfig) -> Any | N
 
 
 async def get_initial_oauth_headers(extensions_config: ExtensionsConfig) -> dict[str, str]:
-    """Get initial OAuth Authorization headers for MCP server connections."""
+    """获取所有需要 OAuth 的 MCP 服务器的初始 Authorization 头。
+
+    用于服务器连接建立阶段（工具发现/会话初始化）。
+
+    Args:
+        extensions_config: 扩展配置。
+
+    Returns:
+        服务器名到 Authorization 头值的映射。
+    """
     token_manager = OAuthTokenManager.from_extensions_config(extensions_config)
     if not token_manager.has_oauth_servers():
         return {}

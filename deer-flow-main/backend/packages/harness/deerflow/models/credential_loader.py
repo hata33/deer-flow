@@ -1,15 +1,15 @@
-"""Auto-load credentials from Claude Code CLI and Codex CLI.
+"""Claude Code CLI 和 Codex CLI 的凭据自动加载。
 
-Implements two credential strategies:
-  1. Claude Code OAuth token from explicit env vars or an exported credentials file
-     - Uses Authorization: Bearer header (NOT x-api-key)
-     - Requires anthropic-beta: oauth-2025-04-20,claude-code-20250219
-     - Supports $CLAUDE_CODE_OAUTH_TOKEN, $CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR, and $ANTHROPIC_AUTH_TOKEN
-     - Override path with $CLAUDE_CODE_CREDENTIALS_PATH
-  2. Codex CLI token from ~/.codex/auth.json
-     - Uses chatgpt.com/backend-api/codex/responses endpoint
-     - Supports both legacy top-level tokens and current nested tokens shape
-     - Override path with $CODEX_AUTH_PATH
+实现两种凭据策略：
+  1. Claude Code OAuth token（支持环境变量、文件描述符、凭据文件）
+     - 使用 Authorization: Bearer 头（非 x-api-key）
+     - 需要 anthropic-beta: oauth-2025-04-20,claude-code-20250219
+     - 查找顺序：$CLAUDE_CODE_OAUTH_TOKEN → $ANTHROPIC_AUTH_TOKEN →
+       $CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR →
+       $CLAUDE_CODE_CREDENTIALS_PATH → ~/.claude/.credentials.json
+  2. Codex CLI token（从 ~/.codex/auth.json 加载）
+     - 支持 legacy 顶层 token 和当前嵌套 token 结构
+     - 覆盖路径：$CODEX_AUTH_PATH
 """
 
 import json
@@ -22,18 +22,25 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Required beta headers for Claude Code OAuth tokens
+# Claude Code OAuth token 所需的 beta 头
 OAUTH_ANTHROPIC_BETAS = "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14"
 
 
 def is_oauth_token(token: str) -> bool:
-    """Check if a token is a Claude Code OAuth token (not a standard API key)."""
+    """判断 token 是否为 Claude Code OAuth token（包含 sk-ant-oat 前缀）。"""
     return isinstance(token, str) and "sk-ant-oat" in token
 
 
 @dataclass
 class ClaudeCodeCredential:
-    """Claude Code CLI OAuth credential."""
+    """Claude Code CLI OAuth 凭据。
+
+    Attributes:
+        access_token: 访问令牌。
+        refresh_token: 刷新令牌。
+        expires_at: 过期时间（毫秒时间戳）。
+        source: 凭据来源标识。
+    """
 
     access_token: str
     refresh_token: str = ""
@@ -42,14 +49,21 @@ class ClaudeCodeCredential:
 
     @property
     def is_expired(self) -> bool:
+        """检查 token 是否已过期（含 1 分钟缓冲）。"""
         if self.expires_at <= 0:
             return False
-        return time.time() * 1000 > self.expires_at - 60_000  # 1 min buffer
+        return time.time() * 1000 > self.expires_at - 60_000
 
 
 @dataclass
 class CodexCliCredential:
-    """Codex CLI credential."""
+    """Codex CLI 凭据。
+
+    Attributes:
+        access_token: 访问令牌。
+        account_id: 账户 ID。
+        source: 凭据来源标识。
+    """
 
     access_token: str
     account_id: str = ""
@@ -57,6 +71,7 @@ class CodexCliCredential:
 
 
 def _resolve_credential_path(env_var: str, default_relative_path: str) -> Path:
+    """解析凭据文件路径，优先使用环境变量指定的路径。"""
     configured_path = os.getenv(env_var)
     if configured_path:
         return Path(configured_path).expanduser()
@@ -64,6 +79,7 @@ def _resolve_credential_path(env_var: str, default_relative_path: str) -> Path:
 
 
 def _home_dir() -> Path:
+    """获取用户主目录。"""
     home = os.getenv("HOME")
     if home:
         return Path(home).expanduser()
@@ -71,6 +87,7 @@ def _home_dir() -> Path:
 
 
 def _load_json_file(path: Path, label: str) -> dict[str, Any] | None:
+    """安全加载 JSON 文件，文件不存在或格式错误时返回 None。"""
     if not path.exists():
         logger.debug(f"{label} not found: {path}")
         return None
@@ -86,6 +103,7 @@ def _load_json_file(path: Path, label: str) -> dict[str, Any] | None:
 
 
 def _read_secret_from_file_descriptor(env_var: str) -> str | None:
+    """从文件描述符读取密钥（支持 Claude Code 的 FD 传递机制）。"""
     fd_value = os.getenv(env_var)
     if not fd_value:
         return None
@@ -106,6 +124,7 @@ def _read_secret_from_file_descriptor(env_var: str) -> str | None:
 
 
 def _credential_from_direct_token(access_token: str, source: str) -> ClaudeCodeCredential | None:
+    """从直接传入的 token 字符串创建凭据。"""
     token = access_token.strip()
     if not token:
         return None
@@ -113,6 +132,7 @@ def _credential_from_direct_token(access_token: str, source: str) -> ClaudeCodeC
 
 
 def _iter_claude_code_credential_paths() -> list[Path]:
+    """生成 Claude Code 凭据文件的搜索路径列表。"""
     paths: list[Path] = []
     override_path = os.getenv("CLAUDE_CODE_CREDENTIALS_PATH")
     if override_path:
@@ -126,6 +146,7 @@ def _iter_claude_code_credential_paths() -> list[Path]:
 
 
 def _extract_claude_code_credential(data: dict[str, Any], source: str) -> ClaudeCodeCredential | None:
+    """从凭据文件内容中提取 Claude Code OAuth 凭据。"""
     oauth = data.get("claudeAiOauth", {})
     access_token = oauth.get("accessToken", "")
     if not access_token:
@@ -147,25 +168,18 @@ def _extract_claude_code_credential(data: dict[str, Any], source: str) -> Claude
 
 
 def load_claude_code_credential() -> ClaudeCodeCredential | None:
-    """Load OAuth credential from explicit Claude Code handoff sources.
+    """从多个来源加载 Claude Code OAuth 凭据。
 
-    Lookup order:
-      1. $CLAUDE_CODE_OAUTH_TOKEN or $ANTHROPIC_AUTH_TOKEN
-      2. $CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR
-      3. $CLAUDE_CODE_CREDENTIALS_PATH
-      4. ~/.claude/.credentials.json
+    查找顺序：
+    1. $CLAUDE_CODE_OAUTH_TOKEN 或 $ANTHROPIC_AUTH_TOKEN（直接 token）
+    2. $CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR（文件描述符）
+    3. $CLAUDE_CODE_CREDENTIALS_PATH（自定义路径）
+    4. ~/.claude/.credentials.json（默认路径）
 
-    Exported credentials files contain:
-    {
-      "claudeAiOauth": {
-        "accessToken": "sk-ant-oat01-...",
-        "refreshToken": "sk-ant-ort01-...",
-        "expiresAt": 1773430695128,
-        "scopes": ["user:inference", ...],
-        ...
-      }
-    }
+    Returns:
+        ClaudeCodeCredential 实例，未找到时返回 None。
     """
+    # 直接 token（环境变量）
     direct_token = os.getenv("CLAUDE_CODE_OAUTH_TOKEN") or os.getenv("ANTHROPIC_AUTH_TOKEN")
     if direct_token:
         cred = _credential_from_direct_token(direct_token, "claude-cli-env")
@@ -173,6 +187,7 @@ def load_claude_code_credential() -> ClaudeCodeCredential | None:
             logger.info("Loaded Claude Code OAuth credential from environment")
         return cred
 
+    # 文件描述符
     fd_token = _read_secret_from_file_descriptor("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR")
     if fd_token:
         cred = _credential_from_direct_token(fd_token, "claude-cli-fd")
@@ -180,6 +195,7 @@ def load_claude_code_credential() -> ClaudeCodeCredential | None:
             logger.info("Loaded Claude Code OAuth credential from file descriptor")
         return cred
 
+    # 凭据文件（自定义路径或默认路径）
     override_path = os.getenv("CLAUDE_CODE_CREDENTIALS_PATH")
     override_path_obj = Path(override_path).expanduser() if override_path else None
     for cred_path in _iter_claude_code_credential_paths():
@@ -196,7 +212,13 @@ def load_claude_code_credential() -> ClaudeCodeCredential | None:
 
 
 def load_codex_cli_credential() -> CodexCliCredential | None:
-    """Load credential from Codex CLI (~/.codex/auth.json)."""
+    """从 Codex CLI 的 auth.json 加载凭据（~/.codex/auth.json）。
+
+    支持 legacy 顶层 token（access_token/token）和当前嵌套结构（tokens.access_token）。
+
+    Returns:
+        CodexCliCredential 实例，未找到时返回 None。
+    """
     cred_path = _resolve_credential_path("CODEX_AUTH_PATH", ".codex/auth.json")
     data = _load_json_file(cred_path, "Codex CLI credentials")
     if data is None:

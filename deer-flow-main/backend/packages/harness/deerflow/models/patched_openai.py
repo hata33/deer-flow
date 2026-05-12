@@ -1,22 +1,14 @@
-"""Patched ChatOpenAI that preserves thought_signature for Gemini thinking models.
+"""OpenAI 模型补丁——保留 Gemini thinking 模型的 thought_signature。
 
-When using Gemini with thinking enabled via an OpenAI-compatible gateway (e.g.
-Vertex AI, Google AI Studio, or any proxy), the API requires that the
-``thought_signature`` field on tool-call objects is echoed back verbatim in
-every subsequent request.
+当通过 OpenAI 兼容网关使用 Gemini thinking 模式时，API 要求在后续请求中
+原样回传 tool-call 对象上的 thought_signature 字段。
 
-The OpenAI-compatible gateway stores the raw tool-call dicts (including
-``thought_signature``) in ``additional_kwargs["tool_calls"]``, but standard
-``langchain_openai.ChatOpenAI`` only serialises the standard fields (``id``,
-``type``, ``function``) into the outgoing payload, silently dropping the
-signature.  That causes an HTTP 400 ``INVALID_ARGUMENT`` error:
+OpenAI 兼容网关将原始 tool-call 字典（包含 thought_signature）存储在
+additional_kwargs["tool_calls"] 中，但标准 ChatOpenAI 在序列化时只保留
+标准字段（id、type、function），静默丢弃了 signature，导致 HTTP 400 错误。
 
-    Unable to submit request because function call `<tool>` in the N. content
-    block is missing a `thought_signature`.
-
-This module fixes the problem by overriding ``_get_request_payload`` to
-re-inject tool-call signatures back into the outgoing payload for any assistant
-message that originally carried them.
+本补丁在 _get_request_payload 中将 thought_signature 从 additional_kwargs
+重新注入到序列化后的请求载荷中。
 """
 
 from __future__ import annotations

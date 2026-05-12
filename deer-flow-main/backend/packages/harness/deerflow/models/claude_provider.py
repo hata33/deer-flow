@@ -1,18 +1,23 @@
-"""Custom Claude provider with OAuth Bearer auth, prompt caching, and smart thinking.
+"""Claude 模型提供者——OAuth Bearer 认证、提示缓存和智能思考预算。
 
-Supports two authentication modes:
-  1. Standard API key (x-api-key header) — default ChatAnthropic behavior
-  2. Claude Code OAuth token (Authorization: Bearer header)
-     - Detected by sk-ant-oat prefix
-     - Requires anthropic-beta: oauth-2025-04-20,claude-code-20250219
-     - Requires billing header in system prompt for all OAuth requests
+支持两种认证模式：
+  1. 标准 API key（x-api-key 头）——ChatAnthropic 默认行为
+  2. Claude Code OAuth token（Authorization: Bearer 头）
+     - 通过 sk-ant-oat 前缀自动检测
+     - 需要 anthropic-beta: oauth-2025-04-20,claude-code-20250219
+     - OAuth 请求需要 system prompt 中的 billing 头
 
-Auto-loads credentials from explicit runtime handoff:
-  - $ANTHROPIC_API_KEY environment variable
-  - $CLAUDE_CODE_OAUTH_TOKEN or $ANTHROPIC_AUTH_TOKEN
+自动从多个来源加载凭据（按优先级）：
+  - $ANTHROPIC_API_KEY 环境变量
+  - $CLAUDE_CODE_OAUTH_TOKEN 或 $ANTHROPIC_AUTH_TOKEN
   - $CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR
   - $CLAUDE_CODE_CREDENTIALS_PATH
   - ~/.claude/.credentials.json
+
+功能增强：
+- 提示缓存：自动为 system prompt 和最近消息添加 cache_control
+- 智能思考预算：自动分配 80% 的 max_tokens 作为 thinking budget
+- 速率限制重试：指数退避 + Retry-After 头解析
 """
 
 import hashlib

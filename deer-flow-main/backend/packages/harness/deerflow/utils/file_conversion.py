@@ -1,7 +1,7 @@
-"""File conversion utilities.
+"""文件转换工具。
 
-Converts document files (PDF, PPT, Excel, Word) to Markdown using markitdown.
-No FastAPI or HTTP dependencies — pure utility functions.
+使用 markitdown 将文档文件（PDF、PPT、Excel、Word）转换为 Markdown 格式。
+纯工具函数——无 FastAPI 或 HTTP 依赖。
 """
 
 import logging
@@ -9,7 +9,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# File extensions that should be converted to markdown
+# 支持转换为 Markdown 的文件扩展名
 CONVERTIBLE_EXTENSIONS = {
     ".pdf",
     ".ppt",
@@ -22,13 +22,15 @@ CONVERTIBLE_EXTENSIONS = {
 
 
 async def convert_file_to_markdown(file_path: Path) -> Path | None:
-    """Convert a file to markdown using markitdown.
+    """使用 markitdown 将文档文件转换为 Markdown。
+
+    转换后的 .md 文件保存在原文件同目录下，文件名相同但扩展名为 .md。
 
     Args:
-        file_path: Path to the file to convert.
+        file_path: 待转换的文件路径。
 
     Returns:
-        Path to the markdown file if conversion was successful, None otherwise.
+        转换后的 Markdown 文件路径，失败时返回 None。
     """
     try:
         from markitdown import MarkItDown
@@ -36,7 +38,6 @@ async def convert_file_to_markdown(file_path: Path) -> Path | None:
         md = MarkItDown()
         result = md.convert(str(file_path))
 
-        # Save as .md file with same name
         md_path = file_path.with_suffix(".md")
         md_path.write_text(result.text_content, encoding="utf-8")
 
