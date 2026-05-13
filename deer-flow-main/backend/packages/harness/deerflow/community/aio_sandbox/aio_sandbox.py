@@ -1,3 +1,9 @@
+"""AIO 沙箱实现。
+
+通过 HTTP API 连接运行中的 AIO 沙箱容器（agent-infra/sandbox），
+实现命令执行、文件读写和目录列表等沙箱操作。
+"""
+
 import base64
 import logging
 
@@ -9,18 +15,15 @@ logger = logging.getLogger(__name__)
 
 
 class AioSandbox(Sandbox):
-    """Sandbox implementation using the agent-infra/sandbox Docker container.
-
-    This sandbox connects to a running AIO sandbox container via HTTP API.
-    """
+    """基于 AIO Docker 容器的沙箱实现，通过 HTTP API 交互。"""
 
     def __init__(self, id: str, base_url: str, home_dir: str | None = None):
-        """Initialize the AIO sandbox.
+        """初始化 AIO 沙箱。
 
         Args:
-            id: Unique identifier for this sandbox instance.
-            base_url: URL of the sandbox API (e.g., http://localhost:8080).
-            home_dir: Home directory inside the sandbox. If None, will be fetched from the sandbox.
+            id: 沙箱唯一标识。
+            base_url: 沙箱 API 地址（如 http://localhost:8080）。
+            home_dir: 沙箱内主目录，None 时从沙箱自动获取。
         """
         super().__init__(id)
         self._base_url = base_url
@@ -33,21 +36,14 @@ class AioSandbox(Sandbox):
 
     @property
     def home_dir(self) -> str:
-        """Get the home directory inside the sandbox."""
+        """获取沙箱内主目录（懒加载）。"""
         if self._home_dir is None:
             context = self._client.sandbox.get_context()
             self._home_dir = context.home_dir
         return self._home_dir
 
     def execute_command(self, command: str) -> str:
-        """Execute a shell command in the sandbox.
-
-        Args:
-            command: The command to execute.
-
-        Returns:
-            The output of the command.
-        """
+        """在沙箱内执行 shell 命令。"""
         try:
             result = self._client.shell.exec_command(command=command)
             output = result.data.output if result.data else ""
@@ -57,14 +53,7 @@ class AioSandbox(Sandbox):
             return f"Error: {e}"
 
     def read_file(self, path: str) -> str:
-        """Read the content of a file in the sandbox.
-
-        Args:
-            path: The absolute path of the file to read.
-
-        Returns:
-            The content of the file.
-        """
+        """读取沙箱内文件内容。"""
         try:
             result = self._client.file.read_file(file=path)
             return result.data.content if result.data else ""
@@ -73,18 +62,8 @@ class AioSandbox(Sandbox):
             return f"Error: {e}"
 
     def list_dir(self, path: str, max_depth: int = 2) -> list[str]:
-        """List the contents of a directory in the sandbox.
-
-        Args:
-            path: The absolute path of the directory to list.
-            max_depth: The maximum depth to traverse. Default is 2.
-
-        Returns:
-            The contents of the directory.
-        """
+        """列出沙箱内目录内容（通过 find 命令，限制深度和条目数）。"""
         try:
-            # Use shell command to list directory with depth limit
-            # The -L flag limits the depth for the tree command
             result = self._client.shell.exec_command(command=f"find {path} -maxdepth {max_depth} -type f -o -type d 2>/dev/null | head -500")
             output = result.data.output if result.data else ""
             if output:
@@ -95,16 +74,9 @@ class AioSandbox(Sandbox):
             return []
 
     def write_file(self, path: str, content: str, append: bool = False) -> None:
-        """Write content to a file in the sandbox.
-
-        Args:
-            path: The absolute path of the file to write to.
-            content: The text content to write to the file.
-            append: Whether to append the content to the file.
-        """
+        """写入文件（append 模式先读取已有内容再拼接）。"""
         try:
             if append:
-                # Read existing content first and append
                 existing = self.read_file(path)
                 if not existing.startswith("Error:"):
                     content = existing + content
@@ -114,12 +86,7 @@ class AioSandbox(Sandbox):
             raise
 
     def update_file(self, path: str, content: bytes) -> None:
-        """Update a file with binary content in the sandbox.
-
-        Args:
-            path: The absolute path of the file to update.
-            content: The binary content to write to the file.
-        """
+        """以二进制模式更新文件（base64 编码传输）。"""
         try:
             base64_content = base64.b64encode(content).decode("utf-8")
             self._client.file.write_file(file=path, content=base64_content, encoding="base64")

@@ -1,5 +1,7 @@
-"""
-Image Search Tool - Search images using DuckDuckGo for reference in image generation.
+"""DuckDuckGo 图片搜索工具。
+
+用于图片生成前的参考图片搜索，支持尺寸、类型、布局等过滤条件。
+无需 API Key。
 """
 
 import json
@@ -23,23 +25,7 @@ def _search_images(
     layout: str | None = None,
     license_image: str | None = None,
 ) -> list[dict]:
-    """
-    Execute image search using DuckDuckGo.
-
-    Args:
-        query: Search keywords
-        max_results: Maximum number of results
-        region: Search region
-        safesearch: Safe search level
-        size: Image size (Small/Medium/Large/Wallpaper)
-        color: Color filter
-        type_image: Image type (photo/clipart/gif/transparent/line)
-        layout: Layout (Square/Tall/Wide)
-        license_image: License filter
-
-    Returns:
-        List of search results
-    """
+    """执行 DuckDuckGo 图片搜索。"""
     try:
         from ddgs import DDGS
     except ImportError:
@@ -101,7 +87,7 @@ def image_search_tool(
     """
     config = get_app_config().get_tool_config("image_search")
 
-    # Override max_results from config if set
+    # 从配置覆盖 max_results
     if config is not None and "max_results" in config.model_extra:
         max_results = config.model_extra.get("max_results", max_results)
 

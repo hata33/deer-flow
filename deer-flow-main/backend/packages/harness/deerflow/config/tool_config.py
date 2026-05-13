@@ -1,3 +1,5 @@
+"""工具和工具分组配置定义。
+"""
 from pydantic import BaseModel, ConfigDict, Field
 
 

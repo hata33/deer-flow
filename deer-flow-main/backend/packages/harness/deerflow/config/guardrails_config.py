@@ -1,4 +1,5 @@
 """Configuration for pre-tool-call authorization."""
+# 工具调用前置授权（Guardrails）配置
 
 from pydantic import BaseModel, Field
 

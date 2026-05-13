@@ -1,5 +1,7 @@
-"""
-Web Search Tool - Search the web using DuckDuckGo (no API key required).
+"""DuckDuckGo 网页搜索工具。
+
+无需 API Key，通过 ddgs 库实现网页文本搜索。
+支持配置覆盖 max_results 等参数。
 """
 
 import json
@@ -18,18 +20,7 @@ def _search_text(
     region: str = "wt-wt",
     safesearch: str = "moderate",
 ) -> list[dict]:
-    """
-    Execute text search using DuckDuckGo.
-
-    Args:
-        query: Search keywords
-        max_results: Maximum number of results
-        region: Search region
-        safesearch: Safe search level
-
-    Returns:
-        List of search results
-    """
+    """执行 DuckDuckGo 文本搜索。"""
     try:
         from ddgs import DDGS
     except ImportError:
@@ -65,7 +56,7 @@ def web_search_tool(
     """
     config = get_app_config().get_tool_config("web_search")
 
-    # Override max_results from config if set
+    # 从配置覆盖 max_results
     if config is not None and "max_results" in config.model_extra:
         max_results = config.model_extra.get("max_results", max_results)
 
@@ -77,6 +68,7 @@ def web_search_tool(
     if not results:
         return json.dumps({"error": "No results found", "query": query}, ensure_ascii=False)
 
+    # 统一结果格式：title, url, content
     normalized_results = [
         {
             "title": r.get("title", ""),

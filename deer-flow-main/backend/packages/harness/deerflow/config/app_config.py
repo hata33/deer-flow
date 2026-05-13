@@ -1,3 +1,4 @@
+# 应用主配置（AppConfig）——所有配置的根入口
 import logging
 import os
 from pathlib import Path

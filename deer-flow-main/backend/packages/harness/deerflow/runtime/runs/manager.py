@@ -1,4 +1,8 @@
-"""In-memory run registry."""
+"""内存运行注册表。
+
+管理 Agent 运行记录的创建、状态转换和取消操作，所有变更受 asyncio 锁保护。
+支持多任务策略：reject（拒绝并发）、interrupt（中断已有）、rollback（回滚）。
+"""
 
 from __future__ import annotations
 
@@ -19,7 +23,7 @@ def _now_iso() -> str:
 
 @dataclass
 class RunRecord:
-    """Mutable record for a single run."""
+    """单次运行的可变记录。"""
 
     run_id: str
     thread_id: str
@@ -38,7 +42,7 @@ class RunRecord:
 
 
 class RunManager:
-    """In-memory run registry.  All mutations are protected by an asyncio lock."""
+    """内存运行注册表，所有变更受 asyncio 锁保护。"""
 
     def __init__(self) -> None:
         self._runs: dict[str, RunRecord] = {}
@@ -54,7 +58,7 @@ class RunManager:
         kwargs: dict | None = None,
         multitask_strategy: str = "reject",
     ) -> RunRecord:
-        """Create a new pending run and register it."""
+        """创建新的待处理运行并注册。"""
         run_id = str(uuid.uuid4())
         now = _now_iso()
         record = RunRecord(
@@ -75,11 +79,11 @@ class RunManager:
         return record
 
     def get(self, run_id: str) -> RunRecord | None:
-        """Return a run record by ID, or ``None``."""
+        """根据 ID 返回运行记录。"""
         return self._runs.get(run_id)
 
     async def list_by_thread(self, thread_id: str) -> list[RunRecord]:
-        """Return all runs for a given thread, newest first."""
+        """返回指定线程的所有运行记录（最新优先）。"""
         async with self._lock:
             return sorted(
                 (r for r in self._runs.values() if r.thread_id == thread_id),
@@ -88,7 +92,7 @@ class RunManager:
             )
 
     async def set_status(self, run_id: str, status: RunStatus, *, error: str | None = None) -> None:
-        """Transition a run to a new status."""
+        """转换运行状态。"""
         async with self._lock:
             record = self._runs.get(run_id)
             if record is None:
@@ -101,14 +105,10 @@ class RunManager:
         logger.info("Run %s -> %s", run_id, status.value)
 
     async def cancel(self, run_id: str, *, action: str = "interrupt") -> bool:
-        """Request cancellation of a run.
+        """请求取消运行。
 
         Args:
-            run_id: The run ID to cancel.
-            action: "interrupt" keeps checkpoint, "rollback" reverts to pre-run state.
-
-        Sets the abort event with the action reason and cancels the asyncio task.
-        Returns ``True`` if the run was in-flight and cancellation was initiated.
+            action: "interrupt" 保留检查点，"rollback" 回滚到运行前状态。
         """
         async with self._lock:
             record = self._runs.get(run_id)
@@ -135,14 +135,10 @@ class RunManager:
         kwargs: dict | None = None,
         multitask_strategy: str = "reject",
     ) -> RunRecord:
-        """Atomically check for inflight runs and create a new one.
+        """原子性检查并创建运行（消除 TOCTOU 竞态）。
 
-        For ``reject`` strategy, raises ``ConflictError`` if thread
-        already has a pending/running run.  For ``interrupt``/``rollback``,
-        cancels inflight runs before creating.
-
-        This method holds the lock across both the check and the insert,
-        eliminating the TOCTOU race in separate ``has_inflight`` + ``create``.
+        - reject 策略：线程已有运行时抛出 ConflictError
+        - interrupt/rollback 策略：先取消已有运行再创建
         """
         run_id = str(uuid.uuid4())
         now = _now_iso()
@@ -191,12 +187,12 @@ class RunManager:
         return record
 
     async def has_inflight(self, thread_id: str) -> bool:
-        """Return ``True`` if *thread_id* has a pending or running run."""
+        """检查线程是否有进行中的运行。"""
         async with self._lock:
             return any(r.thread_id == thread_id and r.status in (RunStatus.pending, RunStatus.running) for r in self._runs.values())
 
     async def cleanup(self, run_id: str, *, delay: float = 300) -> None:
-        """Remove a run record after an optional delay."""
+        """延迟移除运行记录。"""
         if delay > 0:
             await asyncio.sleep(delay)
         async with self._lock:
@@ -205,8 +201,8 @@ class RunManager:
 
 
 class ConflictError(Exception):
-    """Raised when multitask_strategy=reject and thread has inflight runs."""
+    """reject 策略下线程已有进行中运行时抛出。"""
 
 
 class UnsupportedStrategyError(Exception):
-    """Raised when a multitask_strategy value is not yet implemented."""
+    """多任务策略值未实现时抛出。"""

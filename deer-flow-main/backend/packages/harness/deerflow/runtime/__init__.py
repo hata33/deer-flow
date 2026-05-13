@@ -1,8 +1,7 @@
-"""LangGraph-compatible runtime — runs, streaming, and lifecycle management.
+"""LangGraph 兼容运行时 — 运行管理、流式传输和生命周期管理。
 
-Re-exports the public API of :mod:`~deerflow.runtime.runs` and
-:mod:`~deerflow.runtime.stream_bridge` so that consumers can import
-directly from ``deerflow.runtime``.
+统一导出 runs、store、stream_bridge、serialization 模块的公开 API，
+消费者可直接从 deerflow.runtime 导入。
 """
 
 from .runs import ConflictError, DisconnectMode, RunManager, RunRecord, RunStatus, UnsupportedStrategyError, run_agent

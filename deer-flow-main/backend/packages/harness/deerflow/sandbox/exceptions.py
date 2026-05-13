@@ -1,8 +1,12 @@
-"""Sandbox-related exceptions with structured error information."""
+"""沙箱异常层次结构。
+
+提供结构化的错误信息，包含 sandbox_id、command、exit_code、path、operation 等上下文。
+异常层次：SandboxError → SandboxNotFoundError / SandboxRuntimeError / SandboxCommandError / SandboxFileError
+"""
 
 
 class SandboxError(Exception):
-    """Base exception for all sandbox-related errors."""
+    """沙箱异常基类，携带结构化错误详情。"""
 
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message)
@@ -17,7 +21,7 @@ class SandboxError(Exception):
 
 
 class SandboxNotFoundError(SandboxError):
-    """Raised when a sandbox cannot be found or is not available."""
+    """沙箱未找到或不可用。"""
 
     def __init__(self, message: str = "Sandbox not found", sandbox_id: str | None = None):
         details = {"sandbox_id": sandbox_id} if sandbox_id else None
@@ -26,13 +30,13 @@ class SandboxNotFoundError(SandboxError):
 
 
 class SandboxRuntimeError(SandboxError):
-    """Raised when sandbox runtime is not available or misconfigured."""
+    """沙箱运行时不可用或配置错误。"""
 
     pass
 
 
 class SandboxCommandError(SandboxError):
-    """Raised when a command execution fails in the sandbox."""
+    """沙箱中命令执行失败，携带命令内容和退出码。"""
 
     def __init__(self, message: str, command: str | None = None, exit_code: int | None = None):
         details = {}
@@ -46,7 +50,7 @@ class SandboxCommandError(SandboxError):
 
 
 class SandboxFileError(SandboxError):
-    """Raised when a file operation fails in the sandbox."""
+    """沙箱中文件操作失败，携带路径和操作类型。"""
 
     def __init__(self, message: str, path: str | None = None, operation: str | None = None):
         details = {}
@@ -60,12 +64,12 @@ class SandboxFileError(SandboxError):
 
 
 class SandboxPermissionError(SandboxFileError):
-    """Raised when a permission error occurs during file operations."""
+    """沙箱中文件操作权限不足。"""
 
     pass
 
 
 class SandboxFileNotFoundError(SandboxFileError):
-    """Raised when a file or directory is not found."""
+    """沙箱中文件或目录未找到。"""
 
     pass

@@ -1,8 +1,14 @@
+"""沙箱抽象接口。
+
+定义沙箱环境的标准操作接口：命令执行、文件读写、目录列表。
+所有沙箱实现（本地、Docker）都必须实现此接口。
+"""
+
 from abc import ABC, abstractmethod
 
 
 class Sandbox(ABC):
-    """Abstract base class for sandbox environments"""
+    """沙箱环境抽象基类，定义命令执行和文件操作的统一接口。"""
 
     _id: str
 
@@ -11,62 +17,63 @@ class Sandbox(ABC):
 
     @property
     def id(self) -> str:
+        """沙箱唯一标识符。"""
         return self._id
 
     @abstractmethod
     def execute_command(self, command: str) -> str:
-        """Execute bash command in sandbox.
+        """在沙箱中执行 bash 命令。
 
         Args:
-            command: The command to execute.
+            command: 待执行的命令。
 
         Returns:
-            The standard or error output of the command.
+            命令的标准输出或错误输出。
         """
         pass
 
     @abstractmethod
     def read_file(self, path: str) -> str:
-        """Read the content of a file.
+        """读取沙箱中的文件内容。
 
         Args:
-            path: The absolute path of the file to read.
+            path: 文件的绝对路径。
 
         Returns:
-            The content of the file.
+            文件内容字符串。
         """
         pass
 
     @abstractmethod
     def list_dir(self, path: str, max_depth=2) -> list[str]:
-        """List the contents of a directory.
+        """列出沙箱中目录的内容（树形格式）。
 
         Args:
-            path: The absolute path of the directory to list.
-            max_depth: The maximum depth to traverse. Default is 2.
+            path: 目录的绝对路径。
+            max_depth: 最大遍历深度，默认 2。
 
         Returns:
-            The contents of the directory.
+            目录内容字符串列表。
         """
         pass
 
     @abstractmethod
     def write_file(self, path: str, content: str, append: bool = False) -> None:
-        """Write content to a file.
+        """向沙箱中的文件写入文本内容。
 
         Args:
-            path: The absolute path of the file to write to.
-            content: The text content to write to the file.
-            append: Whether to append the content to the file. If False, the file will be created or overwritten.
+            path: 文件的绝对路径。
+            content: 待写入的文本内容。
+            append: 是否追加模式，False 时创建或覆盖。
         """
         pass
 
     @abstractmethod
     def update_file(self, path: str, content: bytes) -> None:
-        """Update a file with binary content.
+        """用二进制内容更新沙箱中的文件。
 
         Args:
-            path: The absolute path of the file to update.
-            content: The binary content to write to the file.
+            path: 文件的绝对路径。
+            content: 待写入的二进制内容。
         """
         pass

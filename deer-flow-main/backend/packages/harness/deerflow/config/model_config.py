@@ -1,3 +1,7 @@
+"""模型配置定义。
+
+定义模型的能力标识（thinking、vision、reasoning_effort）和构造参数。
+"""
 from pydantic import BaseModel, ConfigDict, Field
 
 

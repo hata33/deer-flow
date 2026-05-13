@@ -1,3 +1,9 @@
+"""Tavily 搜索和抓取工具。
+
+通过 Tavily API 实现网页搜索和页面内容提取。
+需要 Tavily API Key。
+"""
+
 import json
 
 from langchain.tools import tool
@@ -7,6 +13,7 @@ from deerflow.config import get_app_config
 
 
 def _get_tavily_client() -> TavilyClient:
+    """从配置获取 Tavily 客户端。"""
     config = get_app_config().get_tool_config("web_search")
     api_key = None
     if config is not None and "api_key" in config.model_extra:
@@ -57,6 +64,7 @@ def web_fetch_tool(url: str) -> str:
         return f"Error: {res['failed_results'][0]['error']}"
     elif "results" in res and len(res["results"]) > 0:
         result = res["results"][0]
+        # 内容截断到 4KB
         return f"# {result['title']}\n\n{result['raw_content'][:4096]}"
     else:
         return "Error: No results found"

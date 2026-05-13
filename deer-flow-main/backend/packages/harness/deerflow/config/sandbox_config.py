@@ -1,3 +1,7 @@
+"""沙箱配置定义。
+
+支持本地沙箱和 Docker 沙箱（AioSandboxProvider）两种模式。
+"""
 from pydantic import BaseModel, ConfigDict, Field
 
 

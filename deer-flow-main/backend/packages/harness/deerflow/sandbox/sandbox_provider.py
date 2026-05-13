@@ -1,3 +1,9 @@
+"""沙箱提供者抽象接口和全局单例管理。
+
+通过配置驱动的反射机制（resolve_class）加载沙箱实现，
+支持 acquire/get/release 生命周期管理。
+"""
+
 from abc import ABC, abstractmethod
 
 from deerflow.config import get_app_config
@@ -6,32 +12,38 @@ from deerflow.sandbox.sandbox import Sandbox
 
 
 class SandboxProvider(ABC):
-    """Abstract base class for sandbox providers"""
+    """沙箱提供者抽象基类，定义沙箱的生命周期管理接口。"""
 
     @abstractmethod
     def acquire(self, thread_id: str | None = None) -> str:
-        """Acquire a sandbox environment and return its ID.
+        """获取一个沙箱环境并返回其 ID。
+
+        Args:
+            thread_id: 关联的线程 ID，用于路径隔离。
 
         Returns:
-            The ID of the acquired sandbox environment.
+            沙箱 ID。
         """
         pass
 
     @abstractmethod
     def get(self, sandbox_id: str) -> Sandbox | None:
-        """Get a sandbox environment by ID.
+        """根据 ID 获取沙箱实例。
 
         Args:
-            sandbox_id: The ID of the sandbox environment to retain.
+            sandbox_id: 沙箱 ID。
+
+        Returns:
+            沙箱实例，不存在时返回 None。
         """
         pass
 
     @abstractmethod
     def release(self, sandbox_id: str) -> None:
-        """Release a sandbox environment.
+        """释放沙箱环境。
 
         Args:
-            sandbox_id: The ID of the sandbox environment to destroy.
+            sandbox_id: 待释放的沙箱 ID。
         """
         pass
 
@@ -40,13 +52,13 @@ _default_sandbox_provider: SandboxProvider | None = None
 
 
 def get_sandbox_provider(**kwargs) -> SandboxProvider:
-    """Get the sandbox provider singleton.
+    """获取沙箱提供者全局单例。
 
-    Returns a cached singleton instance. Use `reset_sandbox_provider()` to clear
-    the cache, or `shutdown_sandbox_provider()` to properly shutdown and clear.
+    首次调用时通过 resolve_class 从配置加载实现类并实例化，
+    后续调用返回缓存实例。
 
     Returns:
-        A sandbox provider instance.
+        沙箱提供者实例。
     """
     global _default_sandbox_provider
     if _default_sandbox_provider is None:
@@ -57,26 +69,13 @@ def get_sandbox_provider(**kwargs) -> SandboxProvider:
 
 
 def reset_sandbox_provider() -> None:
-    """Reset the sandbox provider singleton.
-
-    This clears the cached instance without calling shutdown.
-    The next call to `get_sandbox_provider()` will create a new instance.
-    Useful for testing or when switching configurations.
-
-    Note: If the provider has active sandboxes, they will be orphaned.
-    Use `shutdown_sandbox_provider()` for proper cleanup.
-    """
+    """重置沙箱提供者单例（不调用 shutdown，用于测试或配置切换）。"""
     global _default_sandbox_provider
     _default_sandbox_provider = None
 
 
 def shutdown_sandbox_provider() -> None:
-    """Shutdown and reset the sandbox provider.
-
-    This properly shuts down the provider (releasing all sandboxes)
-    before clearing the singleton. Call this when the application
-    is shutting down or when you need to completely reset the sandbox system.
-    """
+    """关闭并重置沙箱提供者（释放所有沙箱后清空单例）。"""
     global _default_sandbox_provider
     if _default_sandbox_provider is not None:
         if hasattr(_default_sandbox_provider, "shutdown"):
@@ -85,12 +84,10 @@ def shutdown_sandbox_provider() -> None:
 
 
 def set_sandbox_provider(provider: SandboxProvider) -> None:
-    """Set a custom sandbox provider instance.
-
-    This allows injecting a custom or mock provider for testing purposes.
+    """注入自定义沙箱提供者（用于测试）。
 
     Args:
-        provider: The SandboxProvider instance to use.
+        provider: 自定义的 SandboxProvider 实例。
     """
     global _default_sandbox_provider
     _default_sandbox_provider = provider

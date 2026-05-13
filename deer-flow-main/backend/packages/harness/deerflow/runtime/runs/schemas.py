@@ -1,10 +1,10 @@
-"""Run status and disconnect mode enums."""
+"""运行状态和断连模式枚举。"""
 
 from enum import StrEnum
 
 
 class RunStatus(StrEnum):
-    """Lifecycle status of a single run."""
+    """单次运行的生命周期状态。"""
 
     pending = "pending"
     running = "running"
@@ -15,7 +15,7 @@ class RunStatus(StrEnum):
 
 
 class DisconnectMode(StrEnum):
-    """Behaviour when the SSE consumer disconnects."""
+    """SSE 消费者断连时的行为策略。"""
 
-    cancel = "cancel"
-    continue_ = "continue"
+    cancel = "cancel"  # 取消运行
+    continue_ = "continue"  # 继续运行

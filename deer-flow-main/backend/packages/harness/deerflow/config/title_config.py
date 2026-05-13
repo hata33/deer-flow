@@ -1,4 +1,5 @@
 """Configuration for automatic thread title generation."""
+# 自动标题生成配置
 
 from pydantic import BaseModel, Field
 

@@ -1,4 +1,5 @@
 """Configuration for stream bridge."""
+# 流桥接配置（LangGraph 流式事件转发）
 
 from typing import Literal
 

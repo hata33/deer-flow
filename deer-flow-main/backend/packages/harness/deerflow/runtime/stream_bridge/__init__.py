@@ -1,10 +1,7 @@
-"""Stream bridge — decouples agent workers from SSE endpoints.
+"""流桥模块 — 解耦 Agent 工作线程与 SSE 端点。
 
-A ``StreamBridge`` sits between the background task that runs an agent
-(producer) and the HTTP endpoint that pushes Server-Sent Events to
-the client (consumer).  This package provides an abstract protocol
-(:class:`StreamBridge`) plus a default in-memory implementation backed
-by :mod:`asyncio.Queue`.
+StreamBridge 位于后台 Agent 任务（生产者）和 HTTP SSE 端点（消费者）之间，
+提供发布/订阅/清理的抽象接口，以及基于 asyncio.Queue 的内存实现。
 """
 
 from .async_provider import make_stream_bridge

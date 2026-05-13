@@ -1,14 +1,6 @@
-"""Async stream bridge factory.
+"""异步流桥工厂。
 
-Provides an **async context manager** aligned with
-:func:`deerflow.agents.checkpointer.async_provider.make_checkpointer`.
-
-Usage (e.g. FastAPI lifespan)::
-
-    from deerflow.agents.stream_bridge import make_stream_bridge
-
-    async with make_stream_bridge() as bridge:
-        app.state.stream_bridge = bridge
+根据配置创建 StreamBridge 实例，默认使用 MemoryStreamBridge。
 """
 
 from __future__ import annotations
@@ -26,10 +18,9 @@ logger = logging.getLogger(__name__)
 
 @contextlib.asynccontextmanager
 async def make_stream_bridge(config=None) -> AsyncIterator[StreamBridge]:
-    """Async context manager that yields a :class:`StreamBridge`.
+    """异步上下文管理器，yield 配置对应的 StreamBridge。
 
-    Falls back to :class:`MemoryStreamBridge` when no configuration is
-    provided and nothing is set globally.
+    无配置或 type=memory 时使用 MemoryStreamBridge，Redis 支持计划在 Phase 2。
     """
     if config is None:
         config = get_stream_bridge_config()

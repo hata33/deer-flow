@@ -1,16 +1,8 @@
-"""Background agent execution.
+"""后台 Agent 执行器。
 
-Runs an agent graph inside an ``asyncio.Task``, publishing events to
-a :class:`StreamBridge` as they are produced.
-
-Uses ``graph.astream(stream_mode=[...])`` which gives correct full-state
-snapshots for ``values`` mode, proper ``{node: writes}`` for ``updates``,
-and ``(chunk, metadata)`` tuples for ``messages`` mode.
-
-Note: ``events`` mode is not supported through the gateway — it requires
-``graph.astream_events()`` which cannot simultaneously produce ``values``
-snapshots.  The JS open-source LangGraph API server works around this via
-internal checkpoint callbacks that are not exposed in the Python public API.
+在 asyncio.Task 中运行 Agent 图，将流式事件发布到 StreamBridge。
+支持多流模式（values/updates/messages）和中断/回滚取消。
+注意：events 模式不支持（需要 astream_events + 检查点回调，Python API 未暴露）。
 """
 
 from __future__ import annotations
@@ -27,7 +19,7 @@ from .schemas import RunStatus
 
 logger = logging.getLogger(__name__)
 
-# Valid stream_mode values for LangGraph's graph.astream()
+# LangGraph graph.astream() 支持的 stream_mode 值
 _VALID_LG_MODES = {"values", "updates", "checkpoints", "tasks", "debug", "messages", "custom"}
 
 
@@ -46,13 +38,13 @@ async def run_agent(
     interrupt_before: list[str] | Literal["*"] | None = None,
     interrupt_after: list[str] | Literal["*"] | None = None,
 ) -> None:
-    """Execute an agent in the background, publishing events to *bridge*."""
+    """在后台执行 Agent，将事件发布到 bridge。"""
 
     run_id = record.run_id
     thread_id = record.thread_id
     requested_modes: set[str] = set(stream_modes or ["values"])
 
-    # Track whether "events" was requested but skipped
+    # events 模式不支持，跳过并记录日志
     if "events" in requested_modes:
         logger.info(
             "Run %s: 'events' stream_mode not supported in gateway (requires astream_events + checkpoint callbacks). Skipping.",
@@ -60,10 +52,10 @@ async def run_agent(
         )
 
     try:
-        # 1. Mark running
+        # 1. 标记为运行中
         await run_manager.set_status(run_id, RunStatus.running)
 
-        # Record pre-run checkpoint_id to support rollback (Phase 2).
+        # 记录运行前检查点 ID（用于 rollback 支持）
         pre_run_checkpoint_id = None
         try:
             config_for_check = {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
@@ -73,7 +65,7 @@ async def run_agent(
         except Exception:
             logger.debug("Could not get pre-run checkpoint_id for run %s", run_id)
 
-        # 2. Publish metadata — useStream needs both run_id AND thread_id
+        # 2. 发布元数据（useStream 需要 run_id 和 thread_id）
         await bridge.publish(
             run_id,
             "metadata",
@@ -83,46 +75,42 @@ async def run_agent(
             },
         )
 
-        # 3. Build the agent
+        # 3. 构建 Agent
         from langchain_core.runnables import RunnableConfig
         from langgraph.runtime import Runtime
 
-        # Inject runtime context so middlewares can access thread_id
-        # (langgraph-cli does this automatically; we must do it manually)
+        # 注入运行时上下文（langgraph-cli 自动注入，嵌入式需手动）
         runtime = Runtime(context={"thread_id": thread_id}, store=store)
         config.setdefault("configurable", {})["__pregel_runtime"] = runtime
 
         runnable_config = RunnableConfig(**config)
         agent = agent_factory(config=runnable_config)
 
-        # 4. Attach checkpointer and store
+        # 4. 附加检查点和存储
         if checkpointer is not None:
             agent.checkpointer = checkpointer
         if store is not None:
             agent.store = store
 
-        # 5. Set interrupt nodes
+        # 5. 设置中断节点
         if interrupt_before:
             agent.interrupt_before_nodes = interrupt_before
         if interrupt_after:
             agent.interrupt_after_nodes = interrupt_after
 
-        # 6. Build LangGraph stream_mode list
-        #    "events" is NOT a valid astream mode — skip it
-        #    "messages-tuple" maps to LangGraph's "messages" mode
+        # 6. 构建 LangGraph stream_mode 列表
         lg_modes: list[str] = []
         for m in requested_modes:
             if m == "messages-tuple":
-                lg_modes.append("messages")
+                lg_modes.append("messages")  # 映射到 LangGraph 的 messages 模式
             elif m == "events":
-                # Skipped — see log above
-                continue
+                continue  # 跳过
             elif m in _VALID_LG_MODES:
                 lg_modes.append(m)
         if not lg_modes:
             lg_modes = ["values"]
 
-        # Deduplicate while preserving order
+        # 去重并保持顺序
         seen: set[str] = set()
         deduped: list[str] = []
         for m in lg_modes:
@@ -133,9 +121,9 @@ async def run_agent(
 
         logger.info("Run %s: streaming with modes %s (requested: %s)", run_id, lg_modes, requested_modes)
 
-        # 7. Stream using graph.astream
+        # 7. 流式执行
         if len(lg_modes) == 1 and not stream_subgraphs:
-            # Single mode, no subgraphs: astream yields raw chunks
+            # 单模式、无子图：astream 直接产生原始 chunk
             single_mode = lg_modes[0]
             async for chunk in agent.astream(graph_input, config=runnable_config, stream_mode=single_mode):
                 if record.abort_event.is_set():
@@ -144,7 +132,7 @@ async def run_agent(
                 sse_event = _lg_mode_to_sse_event(single_mode)
                 await bridge.publish(run_id, sse_event, serialize(chunk, mode=single_mode))
         else:
-            # Multiple modes or subgraphs: astream yields tuples
+            # 多模式或子图：astream 产生元组
             async for item in agent.astream(
                 graph_input,
                 config=runnable_config,
@@ -162,18 +150,14 @@ async def run_agent(
                 sse_event = _lg_mode_to_sse_event(mode)
                 await bridge.publish(run_id, sse_event, serialize(chunk, mode=mode))
 
-        # 8. Final status
+        # 8. 最终状态
         if record.abort_event.is_set():
             action = record.abort_action
             if action == "rollback":
                 await run_manager.set_status(run_id, RunStatus.error, error="Rolled back by user")
-                # TODO(Phase 2): Implement full checkpoint rollback.
-                # Use pre_run_checkpoint_id to revert the thread's checkpoint
-                # to the state before this run started. Requires a
-                # checkpointer.adelete() or equivalent API.
+                # TODO(Phase 2): 实现完整的检查点回滚
                 try:
                     if checkpointer is not None and pre_run_checkpoint_id is not None:
-                        # Phase 2: roll back to pre_run_checkpoint_id
                         pass
                     logger.info("Run %s rolled back", run_id)
                 except Exception:
@@ -211,19 +195,15 @@ async def run_agent(
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# 辅助函数
 # ---------------------------------------------------------------------------
 
 
 def _lg_mode_to_sse_event(mode: str) -> str:
-    """Map LangGraph internal stream_mode name to SSE event name.
+    """将 LangGraph 内部 stream_mode 名称映射为 SSE 事件名称。
 
-    LangGraph's ``astream(stream_mode="messages")`` produces message
-    tuples.  The SSE protocol calls this ``messages-tuple`` when the
-    client explicitly requests it, but the default SSE event name used
-    by LangGraph Platform is simply ``"messages"``.
+    LangGraph 的 messages 模式产生消息元组，SSE 协议中称为 messages。
     """
-    # All LG modes map 1:1 to SSE event names — "messages" stays "messages"
     return mode
 
 
@@ -232,10 +212,7 @@ def _unpack_stream_item(
     lg_modes: list[str],
     stream_subgraphs: bool,
 ) -> tuple[str | None, Any]:
-    """Unpack a multi-mode or subgraph stream item into (mode, chunk).
-
-    Returns ``(None, None)`` if the item cannot be parsed.
-    """
+    """解包多模式或子图流项目为 (mode, chunk)。"""
     if stream_subgraphs:
         if isinstance(item, tuple) and len(item) == 3:
             _ns, mode, chunk = item
@@ -249,5 +226,5 @@ def _unpack_stream_item(
         mode, chunk = item
         return str(mode), chunk
 
-    # Fallback: single-element output from first mode
+    # 兜底：单元素输出使用第一个模式
     return lg_modes[0] if lg_modes else None, item

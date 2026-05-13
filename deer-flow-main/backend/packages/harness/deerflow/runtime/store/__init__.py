@@ -1,21 +1,8 @@
-"""Store provider for the DeerFlow runtime.
+"""Store 提供者模块。
 
-Re-exports the public API of both the async provider (for long-running
-servers) and the sync provider (for CLI tools and the embedded client).
-
-Async usage (FastAPI lifespan)::
-
-    from deerflow.runtime.store import make_store
-
-    async with make_store() as store:
-        app.state.store = store
-
-Sync usage (CLI / DeerFlowClient)::
-
-    from deerflow.runtime.store import get_store, store_context
-
-    store = get_store()                   # singleton
-    with store_context() as store: ...    # one-shot
+导出异步和同步两种 Store 接口：
+- 异步（FastAPI 等长运行服务）：make_store()
+- 同步（CLI 工具、DeerFlowClient）：get_store() / store_context()
 """
 
 from .async_provider import make_store

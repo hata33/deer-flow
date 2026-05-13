@@ -1,3 +1,9 @@
+"""InfoQuest 网页搜索和抓取工具。
+
+通过 BytePlus InfoQuest API 实现网页搜索、页面抓取和图片搜索。
+从应用配置中读取各工具的参数（超时、时间范围等）。
+"""
+
 from langchain.tools import tool
 
 from deerflow.config import get_app_config
@@ -9,6 +15,7 @@ readability_extractor = ReadabilityExtractor()
 
 
 def _get_infoquest_client() -> InfoQuestClient:
+    """从应用配置构建 InfoQuest 客户端，读取搜索/抓取/图片参数。"""
     search_config = get_app_config().get_tool_config("web_search")
     search_time_range = -1
     if search_config is not None and "search_time_range" in search_config.model_extra:
@@ -70,6 +77,7 @@ def web_fetch_tool(url: str) -> str:
     result = client.fetch(url)
     if result.startswith("Error: "):
         return result
+    # 抓取 HTML 后用 Readability 提取正文
     article = readability_extractor.extract_article(result)
     return article.to_markdown()[:4096]
 

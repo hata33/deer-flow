@@ -1,11 +1,7 @@
-"""Canonical serialization for LangChain / LangGraph objects.
+"""LangChain / LangGraph 对象的规范化序列化。
 
-Provides a single source of truth for converting LangChain message
-objects, Pydantic models, and LangGraph state dicts into plain
-JSON-serialisable Python structures.
-
-Consumers: ``deerflow.runtime.runs.worker`` (SSE publishing) and
-``app.gateway.routers.threads`` (REST responses).
+将 LangChain 消息对象、Pydantic 模型和 LangGraph 状态字典转为纯 JSON 可序列化结构。
+消费者：deerflow.runtime.runs.worker（SSE 发布）和 app.gateway.routers.threads（REST 响应）。
 """
 
 from __future__ import annotations
@@ -14,7 +10,10 @@ from typing import Any
 
 
 def serialize_lc_object(obj: Any) -> Any:
-    """Recursively serialize a LangChain object to a JSON-serialisable dict."""
+    """递归序列化 LangChain 对象为 JSON 可序列化字典。
+
+    处理优先级：基础类型 → 字典/列表 → Pydantic v2 model_dump → Pydantic v1 dict → str。
+    """
     if obj is None:
         return None
     if isinstance(obj, (str, int, float, bool)):
@@ -29,13 +28,13 @@ def serialize_lc_object(obj: Any) -> Any:
             return obj.model_dump()
         except Exception:
             pass
-    # Pydantic v1 / older objects
+    # Pydantic v1 / 旧对象
     if hasattr(obj, "dict"):
         try:
             return obj.dict()
         except Exception:
             pass
-    # Last resort
+    # 兜底：转为字符串
     try:
         return str(obj)
     except Exception:
@@ -43,10 +42,9 @@ def serialize_lc_object(obj: Any) -> Any:
 
 
 def serialize_channel_values(channel_values: dict[str, Any]) -> dict[str, Any]:
-    """Serialize channel values, stripping internal LangGraph keys.
+    """序列化 channel values，移除 LangGraph 内部键（__pregel_*、__interrupt__）。
 
-    Internal keys like ``__pregel_*`` and ``__interrupt__`` are removed
-    to match what the LangGraph Platform API returns.
+    与 LangGraph Platform API 返回格式对齐。
     """
     result: dict[str, Any] = {}
     for key, value in channel_values.items():
@@ -57,7 +55,7 @@ def serialize_channel_values(channel_values: dict[str, Any]) -> dict[str, Any]:
 
 
 def serialize_messages_tuple(obj: Any) -> Any:
-    """Serialize a messages-mode tuple ``(chunk, metadata)``."""
+    """序列化 messages 模式的元组 (chunk, metadata)。"""
     if isinstance(obj, tuple) and len(obj) == 2:
         chunk, metadata = obj
         return [serialize_lc_object(chunk), metadata if isinstance(metadata, dict) else {}]
@@ -65,11 +63,11 @@ def serialize_messages_tuple(obj: Any) -> Any:
 
 
 def serialize(obj: Any, *, mode: str = "") -> Any:
-    """Serialize LangChain objects with mode-specific handling.
+    """按模式序列化 LangChain 对象。
 
-    * ``messages`` — obj is ``(message_chunk, metadata_dict)``
-    * ``values`` — obj is the full state dict; ``__pregel_*`` keys stripped
-    * everything else — recursive ``model_dump()`` / ``dict()`` fallback
+    - ``messages`` — obj 是 (message_chunk, metadata_dict)
+    - ``values`` — obj 是完整状态字典，移除 __pregel_* 键
+    - 其他 — 递归 model_dump() / dict() 兜底
     """
     if mode == "messages":
         return serialize_messages_tuple(obj)

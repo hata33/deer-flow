@@ -1,4 +1,5 @@
 """Unified extensions configuration for MCP servers and skills."""
+# MCP 服务器和技能状态的统一扩展配置
 
 import json
 import os

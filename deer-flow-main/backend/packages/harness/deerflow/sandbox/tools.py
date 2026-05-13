@@ -1,3 +1,11 @@
+"""沙箱工具集——bash、ls、read_file、write_file、str_replace。
+
+提供 Agent 可用的沙箱文件操作和命令执行工具。
+核心功能：
+- 虚拟路径（/mnt/user-data/、/mnt/skills/、/mnt/acp-workspace/）到宿主机路径的映射
+- 本地沙箱的路径校验和输出脱敏（防止泄露宿主机路径）
+- 沙箱的延迟初始化（首次工具调用时自动获取）
+"""
 import posixpath
 import re
 import shlex

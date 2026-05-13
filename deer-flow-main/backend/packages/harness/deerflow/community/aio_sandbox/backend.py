@@ -1,4 +1,8 @@
-"""Abstract base class for sandbox provisioning backends."""
+"""沙箱后端抽象基类。
+
+定义沙箱生命周期的核心接口：创建、销毁、存活检查、发现。
+两种实现：LocalContainerBackend（本地 Docker）和 RemoteSandboxBackend（远程 K8s）。
+"""
 
 from __future__ import annotations
 
@@ -14,14 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 def wait_for_sandbox_ready(sandbox_url: str, timeout: int = 30) -> bool:
-    """Poll sandbox health endpoint until ready or timeout.
+    """轮询沙箱健康检查端点，等待就绪或超时。
 
     Args:
-        sandbox_url: URL of the sandbox (e.g. http://k3s:30001).
-        timeout: Maximum time to wait in seconds.
-
-    Returns:
-        True if sandbox is ready, False otherwise.
+        sandbox_url: 沙箱 URL（如 http://k3s:30001）。
+        timeout: 最大等待秒数。
     """
     start_time = time.time()
     while time.time() - start_time < timeout:
@@ -36,63 +37,29 @@ def wait_for_sandbox_ready(sandbox_url: str, timeout: int = 30) -> bool:
 
 
 class SandboxBackend(ABC):
-    """Abstract base for sandbox provisioning backends.
+    """沙箱后端抽象基类。
 
-    Two implementations:
-    - LocalContainerBackend: starts Docker/Apple Container locally, manages ports
-    - RemoteSandboxBackend: connects to a pre-existing URL (K8s service, external)
+    两种实现：
+    - LocalContainerBackend：本地启动 Docker/Apple Container，管理端口
+    - RemoteSandboxBackend：连接预存的 URL（K8s 服务、外部地址）
     """
 
     @abstractmethod
     def create(self, thread_id: str, sandbox_id: str, extra_mounts: list[tuple[str, str, bool]] | None = None) -> SandboxInfo:
-        """Create/provision a new sandbox.
-
-        Args:
-            thread_id: Thread ID for which the sandbox is being created. Useful for backends that want to organize sandboxes by thread.
-            sandbox_id: Deterministic sandbox identifier.
-            extra_mounts: Additional volume mounts as (host_path, container_path, read_only) tuples.
-                Ignored by backends that don't manage containers (e.g., remote).
-
-        Returns:
-            SandboxInfo with connection details.
-        """
+        """创建/分配沙箱实例。"""
         ...
 
     @abstractmethod
     def destroy(self, info: SandboxInfo) -> None:
-        """Destroy/cleanup a sandbox and release its resources.
-
-        Args:
-            info: The sandbox metadata to destroy.
-        """
+        """销毁沙箱并释放资源。"""
         ...
 
     @abstractmethod
     def is_alive(self, info: SandboxInfo) -> bool:
-        """Quick check whether a sandbox is still alive.
-
-        This should be a lightweight check (e.g., container inspect)
-        rather than a full health check.
-
-        Args:
-            info: The sandbox metadata to check.
-
-        Returns:
-            True if the sandbox appears to be alive.
-        """
+        """轻量检查沙箱是否存活（如容器 inspect，不做完整健康检查）。"""
         ...
 
     @abstractmethod
     def discover(self, sandbox_id: str) -> SandboxInfo | None:
-        """Try to discover an existing sandbox by its deterministic ID.
-
-        Used for cross-process recovery: when another process started a sandbox,
-        this process can discover it by the deterministic container name or URL.
-
-        Args:
-            sandbox_id: The deterministic sandbox ID to look for.
-
-        Returns:
-            SandboxInfo if found and healthy, None otherwise.
-        """
+        """通过确定性 ID 发现已有沙箱（用于跨进程恢复）。"""
         ...

@@ -1,3 +1,9 @@
+"""路径管理模块。
+
+集中管理 DeerFlow 的所有数据目录布局，
+包括线程数据、沙箱目录、记忆文件、智能体目录等。
+支持虚拟路径（/mnt/user-data/）到宿主机路径的映射。
+"""
 import os
 import re
 import shutil

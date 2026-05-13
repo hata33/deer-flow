@@ -1,4 +1,5 @@
 """Configuration for deferred tool loading via tool_search."""
+# 延迟工具加载（tool_search）配置
 
 from pydantic import BaseModel, Field
 

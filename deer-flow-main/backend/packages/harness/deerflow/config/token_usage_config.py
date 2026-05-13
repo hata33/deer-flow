@@ -1,3 +1,5 @@
+"""Token 用量追踪配置。
+"""
 from pydantic import BaseModel, Field
 
 

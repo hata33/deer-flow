@@ -1,4 +1,5 @@
 """Configuration for memory mechanism."""
+# 记忆系统配置
 
 from pydantic import BaseModel, Field
 

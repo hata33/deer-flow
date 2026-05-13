@@ -1,3 +1,4 @@
+# LangSmith 追踪配置
 import logging
 import os
 import threading

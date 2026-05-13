@@ -1,4 +1,5 @@
 """Configuration for LangGraph checkpointer."""
+# LangGraph 状态持久化（checkpointer）配置
 
 from typing import Literal
 

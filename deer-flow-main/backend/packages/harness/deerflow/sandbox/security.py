@@ -1,7 +1,12 @@
-"""Security helpers for sandbox capability gating."""
+"""沙箱安全检查工具。
+
+判断当前沙箱是否为本地沙箱、是否允许宿主机 bash 执行等。
+本地沙箱不是安全隔离边界，需通过配置显式启用 host bash。
+"""
 
 from deerflow.config import get_app_config
 
+# 本地沙箱提供者的类路径标识
 _LOCAL_SANDBOX_PROVIDER_MARKERS = (
     "deerflow.sandbox.local:LocalSandboxProvider",
     "deerflow.sandbox.local.local_sandbox_provider:LocalSandboxProvider",
@@ -21,7 +26,7 @@ LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE = (
 
 
 def uses_local_sandbox_provider(config=None) -> bool:
-    """Return True when the active sandbox provider is the host-local provider."""
+    """判断当前沙箱提供者是否为本地沙箱。"""
     if config is None:
         config = get_app_config()
 
@@ -33,7 +38,11 @@ def uses_local_sandbox_provider(config=None) -> bool:
 
 
 def is_host_bash_allowed(config=None) -> bool:
-    """Return whether host bash execution is explicitly allowed."""
+    """判断是否允许在宿主机上直接执行 bash 命令。
+
+    非 LocalSandboxProvider 默认允许（Docker 沙箱已是隔离环境）。
+    LocalSandboxProvider 需显式配置 sandbox.allow_host_bash: true。
+    """
     if config is None:
         config = get_app_config()
 

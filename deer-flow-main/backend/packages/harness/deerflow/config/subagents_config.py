@@ -1,4 +1,5 @@
 """Configuration for the subagent system loaded from config.yaml."""
+# 子智能体系统配置
 
 import logging
 

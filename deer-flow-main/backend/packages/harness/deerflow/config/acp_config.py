@@ -1,4 +1,5 @@
 """ACP (Agent Client Protocol) agent configuration loaded from config.yaml."""
+# ACP（Agent Communication Protocol）代理配置，从 config.yaml 加载
 
 import logging
 from collections.abc import Mapping

@@ -1,18 +1,19 @@
-"""Remote sandbox backend — delegates Pod lifecycle to the provisioner service.
+"""远程沙箱后端。
 
-The provisioner dynamically creates per-sandbox-id Pods + NodePort Services
-in k3s.  The backend accesses sandbox pods directly via ``k3s:{NodePort}``.
+通过 Provisioner 服务管理 K8s Pod 生命周期。
+Provisioner 动态创建 per-sandbox-id 的 Pod + NodePort Service，
+本后端通过 k3s:{NodePort} 直接访问沙箱 Pod。
 
-Architecture:
+架构:
     ┌────────────┐  HTTP   ┌─────────────┐  K8s API  ┌──────────┐
-    │ this file  │ ──────▸ │ provisioner │ ────────▸ │   k3s    │
-    │ (backend)  │         │ :8002       │           │ :6443    │
+    │  本模块    │ ──────▸ │ provisioner │ ────────▸ │   k3s    │
+    │ (backend)  │         │   :8002     │           │  :6443   │
     └────────────┘         └─────────────┘           └─────┬────┘
-                                                           │ creates
-                           ┌─────────────┐           ┌─────▼──────┐
-                           │   backend   │ ────────▸ │  sandbox   │
-                           │             │  direct   │  Pod(s)    │
-                           └─────────────┘ k3s:NPort └────────────┘
+                                                           │ 创建
+                            ┌─────────────┐          ┌─────▼──────┐
+                            │   backend   │ ───────▸ │  sandbox   │
+                            │             │  直连    │  Pod(s)    │
+                            └─────────────┘ k3s:NPort └────────────┘
 """
 
 from __future__ import annotations
@@ -28,24 +29,16 @@ logger = logging.getLogger(__name__)
 
 
 class RemoteSandboxBackend(SandboxBackend):
-    """Backend that delegates sandbox lifecycle to the provisioner service.
+    """远程沙箱后端：将沙箱生命周期委托给 Provisioner 服务。
 
-    All Pod creation, destruction, and discovery are handled by the
-    provisioner.  This backend is a thin HTTP client.
-
-    Typical config.yaml::
-
-        sandbox:
-          use: deerflow.community.aio_sandbox:AioSandboxProvider
-          provisioner_url: http://provisioner:8002
+    所有 Pod 创建、销毁、发现均由 Provisioner 处理，本模块是轻量 HTTP 客户端。
     """
 
     def __init__(self, provisioner_url: str):
-        """Initialize with the provisioner service URL.
+        """初始化远程后端。
 
         Args:
-            provisioner_url: URL of the provisioner service
-                             (e.g., ``http://provisioner:8002``).
+            provisioner_url: Provisioner 服务地址（如 http://provisioner:8002）。
         """
         self._provisioner_url = provisioner_url.rstrip("/")
 
@@ -53,7 +46,7 @@ class RemoteSandboxBackend(SandboxBackend):
     def provisioner_url(self) -> str:
         return self._provisioner_url
 
-    # ── SandboxBackend interface ──────────────────────────────────────────
+    # ── SandboxBackend 接口实现 ──────────────────────────────────────────
 
     def create(
         self,
@@ -61,33 +54,25 @@ class RemoteSandboxBackend(SandboxBackend):
         sandbox_id: str,
         extra_mounts: list[tuple[str, str, bool]] | None = None,
     ) -> SandboxInfo:
-        """Create a sandbox Pod + Service via the provisioner.
-
-        Calls ``POST /api/sandboxes`` which creates a dedicated Pod +
-        NodePort Service in k3s.
-        """
+        """通过 Provisioner 创建沙箱 Pod + Service（POST /api/sandboxes）。"""
         return self._provisioner_create(thread_id, sandbox_id, extra_mounts)
 
     def destroy(self, info: SandboxInfo) -> None:
-        """Destroy a sandbox Pod + Service via the provisioner."""
+        """通过 Provisioner 销毁沙箱 Pod + Service。"""
         self._provisioner_destroy(info.sandbox_id)
 
     def is_alive(self, info: SandboxInfo) -> bool:
-        """Check whether the sandbox Pod is running."""
+        """通过 Provisioner 检查沙箱 Pod 是否运行中。"""
         return self._provisioner_is_alive(info.sandbox_id)
 
     def discover(self, sandbox_id: str) -> SandboxInfo | None:
-        """Discover an existing sandbox via the provisioner.
-
-        Calls ``GET /api/sandboxes/{sandbox_id}`` and returns info if
-        the Pod exists.
-        """
+        """通过 Provisioner 发现已有沙箱（GET /api/sandboxes/{sandbox_id}）。"""
         return self._provisioner_discover(sandbox_id)
 
-    # ── Provisioner API calls ─────────────────────────────────────────────
+    # ── Provisioner API 调用 ─────────────────────────────────────────────
 
     def _provisioner_create(self, thread_id: str, sandbox_id: str, extra_mounts: list[tuple[str, str, bool]] | None = None) -> SandboxInfo:
-        """POST /api/sandboxes → create Pod + Service."""
+        """创建沙箱。"""
         try:
             resp = requests.post(
                 f"{self._provisioner_url}/api/sandboxes",
@@ -109,7 +94,7 @@ class RemoteSandboxBackend(SandboxBackend):
             raise RuntimeError(f"Provisioner create failed: {exc}") from exc
 
     def _provisioner_destroy(self, sandbox_id: str) -> None:
-        """DELETE /api/sandboxes/{sandbox_id} → destroy Pod + Service."""
+        """销毁沙箱。"""
         try:
             resp = requests.delete(
                 f"{self._provisioner_url}/api/sandboxes/{sandbox_id}",
@@ -123,7 +108,7 @@ class RemoteSandboxBackend(SandboxBackend):
             logger.warning(f"Provisioner destroy failed for {sandbox_id}: {exc}")
 
     def _provisioner_is_alive(self, sandbox_id: str) -> bool:
-        """GET /api/sandboxes/{sandbox_id} → check Pod phase."""
+        """检查沙箱存活状态。"""
         try:
             resp = requests.get(
                 f"{self._provisioner_url}/api/sandboxes/{sandbox_id}",
@@ -137,7 +122,7 @@ class RemoteSandboxBackend(SandboxBackend):
             return False
 
     def _provisioner_discover(self, sandbox_id: str) -> SandboxInfo | None:
-        """GET /api/sandboxes/{sandbox_id} → discover existing sandbox."""
+        """发现已有沙箱。"""
         try:
             resp = requests.get(
                 f"{self._provisioner_url}/api/sandboxes/{sandbox_id}",

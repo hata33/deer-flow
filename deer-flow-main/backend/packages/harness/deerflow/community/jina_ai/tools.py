@@ -1,3 +1,9 @@
+"""Jina AI 网页抓取工具。
+
+通过 Jina Reader API 抓取网页 HTML，再用 ReadabilityExtractor 提取正文。
+返回 Markdown 格式，截断到 4KB。
+"""
+
 from langchain.tools import tool
 
 from deerflow.community.jina_ai.jina_client import JinaClient
@@ -19,10 +25,12 @@ def web_fetch_tool(url: str) -> str:
         url: The URL to fetch the contents of.
     """
     jina_client = JinaClient()
+    # 从配置读取超时时间
     timeout = 10
     config = get_app_config().get_tool_config("web_fetch")
     if config is not None and "timeout" in config.model_extra:
         timeout = config.model_extra.get("timeout")
     html_content = jina_client.crawl(url, return_format="html", timeout=timeout)
+    # 提取正文并转为 Markdown
     article = readability_extractor.extract_article(html_content)
     return article.to_markdown()[:4096]

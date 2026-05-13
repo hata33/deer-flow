@@ -1,3 +1,7 @@
+"""技能路径配置。
+
+定义技能目录的宿主机路径和容器挂载路径。
+"""
 from pathlib import Path
 
 from pydantic import BaseModel, Field

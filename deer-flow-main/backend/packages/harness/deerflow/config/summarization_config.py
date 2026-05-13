@@ -1,4 +1,5 @@
 """Configuration for conversation summarization."""
+# 对话摘要配置
 
 from typing import Literal
 

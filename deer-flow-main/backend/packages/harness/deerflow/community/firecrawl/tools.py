@@ -1,3 +1,9 @@
+"""Firecrawl 网页搜索和抓取工具。
+
+通过 Firecrawl API 实现网页搜索和页面内容抓取（Markdown 格式）。
+需要 Firecrawl API Key。
+"""
+
 import json
 
 from firecrawl import FirecrawlApp
@@ -7,6 +13,7 @@ from deerflow.config import get_app_config
 
 
 def _get_firecrawl_client() -> FirecrawlApp:
+    """从配置获取 Firecrawl 客户端。"""
     config = get_app_config().get_tool_config("web_search")
     api_key = None
     if config is not None:
@@ -30,7 +37,6 @@ def web_search_tool(query: str) -> str:
         client = _get_firecrawl_client()
         result = client.search(query, limit=max_results)
 
-        # result.web contains list of SearchResultWeb objects
         web_results = result.web or []
         normalized_results = [
             {
@@ -70,4 +76,5 @@ def web_fetch_tool(url: str) -> str:
     except Exception as e:
         return f"Error: {str(e)}"
 
+    # 内容截断到 4KB
     return f"# {title}\n\n{markdown_content[:4096]}"
