@@ -263,13 +263,13 @@ flowchart TD
     BM --> BASE
 
     BASE --> M8["SummarizationMiddleware\n条件: enabled\nwrap_model_call: 上下文压缩"]
-    M8 --> M9["TodoMiddleware\n条件: plan_mode\n注入 write_todos"]
-    M9 --> M10["TokenUsageMiddleware\n条件: enabled\ntoken 统计"]
+    M8 --> M9["TodoListMiddleware\n条件: plan_mode\n注入 write_todos"]
+    M9 --> M10["TokenUsageMiddleware\n条件: enabled\nafter_model: token 统计"]
     M10 --> M11["TitleMiddleware — 始终\nafter_agent: 自动生成标题"]
     M11 --> M12["MemoryMiddleware — 始终\nafter_agent: 排队记忆更新"]
     M12 --> M13["ViewImageMiddleware\n条件: vision\nwrap_model_call: 注入图片"]
-    M13 --> M14["DeferredToolFilterMiddleware\n条件: tool_search\n隐藏延迟工具"]
-    M14 --> M15["SubagentLimitMiddleware\n条件: subagent\n截断超额 task 调用"]
+    M13 --> M14["DeferredToolFilterMiddleware\n条件: tool_search\nwrap_model_call: 隐藏延迟工具"]
+    M14 --> M15["SubagentLimitMiddleware\n条件: subagent\nafter_model: 截断超额 task 调用"]
     M15 --> M16["LoopDetectionMiddleware — 始终\nafter_model: 检测循环"]
     M16 --> M17["自定义 middlewares"]
     M17 --> M18["ClarificationMiddleware — 始终，最后\nwrap_tool_call: 拦截澄清请求"]
@@ -346,8 +346,9 @@ flowchart TD
     WM --> WM1["DanglingToolCallMiddleware → 修补缺失 ToolMessage"]
     WM1 --> WM2["SummarizationMiddleware → 接近上限时摘要旧消息"]
     WM2 --> WM3["ViewImageMiddleware → 注入图片 base64"]
+    WM3 --> WM4["DeferredToolFilterMiddleware → 隐藏延迟工具 schema"]
 
-    WM3 --> LLM["LLM 调用\ncreate_chat_model 返回的模型实例"]
+    WM4 --> LLM["LLM 调用\ncreate_chat_model 返回的模型实例"]
 
     LLM --> AM["after_model 钩子"]
     AM --> AM1["TokenUsageMiddleware → 记录 token"]

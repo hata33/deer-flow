@@ -1,7 +1,9 @@
 # 001-Agent工厂构建模块
 
 > 已验证来源：deer-flow 项目 `agents/lead_agent/agent.py` + `agents/factory.py` + `agents/features.py`
-> 本提示词可在新项目中直接使用，通过适配层注入新项目的框架差异，不需要修改本提示词本体。
+> 本模块拆分为两层文档，通过文件名区分：
+> - `sdk-factory-prompt.md` — SDK 层：`create_deerflow_agent`（factory.py），纯参数组装
+> - `app-factory-prompt.md` — 应用层：`make_lead_agent`（agent.py），读配置+降级策略
 
 ---
 
@@ -229,9 +231,9 @@ if model_config.thinking is not None:
 ```
 agents/
   lead_agent/
-    agent.py          # make_lead_agent() 工厂入口
-  factory.py          # create_agent() 通用组装
-  features.py         # RuntimeFeatures 三态特性标志
+    agent.py          # 应用层：make_lead_agent() 工厂入口（参见 app-factory-prompt.md）
+  factory.py          # SDK 层：create_deerflow_agent() 纯参数组装（参见 sdk-factory-prompt.md）
+  features.py         # RuntimeFeatures 三态特性标志 + @Next/@Prev 装饰器
   thread_state.py     # ThreadState 状态模式定义
 
 models/
