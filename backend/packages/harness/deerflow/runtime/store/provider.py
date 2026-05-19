@@ -1,19 +1,19 @@
-"""Sync Store factory.
+"""同步存储工厂模块。
 
-Provides a **sync singleton** and a **sync context manager** for CLI tools
-and the embedded :class:`~deerflow.client.DeerFlowClient`.
+为 CLI 工具和嵌入式 :class:`~deerflow.client.DeerFlowClient` 提供
+**同步单例**和**同步上下文管理器**。
 
-The backend mirrors the configured checkpointer so that both always use the
-same persistence technology.  Supported backends: memory, sqlite, postgres.
+后端镜像配置的检查点，因此两者始终使用相同的持久化技术。
+支持的后端: memory, sqlite, postgres。
 
-Usage::
+用法::
 
     from deerflow.runtime.store.provider import get_store, store_context
 
-    # Singleton — reused across calls, closed on process exit
+    # 单例 —— 跨调用重用，在进程退出时关闭
     store = get_store()
 
-    # One-shot — fresh connection, closed on block exit
+    # 一次性 —— 新连接，在块退出时关闭
     with store_context() as store:
         store.put(("ns",), "key", {"value": 1})
 """
@@ -32,27 +32,38 @@ from deerflow.runtime.store._sqlite_utils import ensure_sqlite_parent_dir, resol
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Error message constants
+# 错误消息常量
 # ---------------------------------------------------------------------------
 
+# SQLite 存储安装提示
 SQLITE_STORE_INSTALL = "langgraph-checkpoint-sqlite is required for the SQLite store. Install it with: uv add langgraph-checkpoint-sqlite"
+
+# PostgreSQL 存储安装提示
 POSTGRES_STORE_INSTALL = (
     "langgraph-checkpoint-postgres is required for the PostgreSQL store. Install the package extra with: pip install 'deerflow-harness[postgres]' (or use: uv sync --all-packages --extra postgres when developing locally)"
 )
+
+# PostgreSQL 连接字符串错误
 POSTGRES_CONN_REQUIRED = "checkpointer.connection_string is required for the postgres backend"
 
 # ---------------------------------------------------------------------------
-# Sync factory
+# 同步工厂
 # ---------------------------------------------------------------------------
 
 
 @contextlib.contextmanager
 def _sync_store_cm(config) -> Iterator[BaseStore]:
-    """Context manager that creates and tears down a sync Store.
+    """创建和拆除同步存储的上下文管理器。
 
-    The ``config`` argument is a
-    :class:`~deerflow.config.checkpointer_config.CheckpointerConfig` instance —
-    the same object used by the checkpointer factory.
+    Args:
+        config: CheckpointerConfig 实例 —— 与检查点工厂使用的对象相同
+
+    Yields:
+        BaseStore 实例
+
+    Raises:
+        ImportError: 如果缺少所需的依赖
+        ValueError: 如果配置无效
     """
     if config.type == "memory":
         from langgraph.store.memory import InMemoryStore
@@ -95,30 +106,33 @@ def _sync_store_cm(config) -> Iterator[BaseStore]:
 
 
 # ---------------------------------------------------------------------------
-# Sync singleton
+# 同步单例
 # ---------------------------------------------------------------------------
 
 _store: BaseStore | None = None
-_store_ctx = None  # open context manager keeping the connection alive
+_store_ctx = None  # 打开的上下文管理器保持连接活动
 
 
 def get_store() -> BaseStore:
-    """Return the global sync Store singleton, creating it on first call.
+    """返回全局同步存储单例，在首次调用时创建。
 
-    Returns an :class:`~langgraph.store.memory.InMemoryStore` when no
-    checkpointer is configured in *config.yaml* (emits a WARNING in that case).
+    Returns:
+        BaseStore 实例（如果未配置检查点则返回 InMemoryStore）
 
     Raises:
-        ImportError: If the required package for the configured backend is not installed.
-        ValueError: If ``connection_string`` is missing for a backend that requires it.
+        ImportError: 如果未安装配置后端所需的包
+        ValueError: 如果需要连接字符串的后端缺少它
+
+    Note:
+        当在 *config.yaml* 中未配置检查点时返回
+        :class:`~langgraph.store.memory.InMemoryStore`（在这种情况下发出警告）。
     """
     global _store, _store_ctx
 
     if _store is not None:
         return _store
 
-    # Lazily load app config, mirroring the checkpointer singleton pattern so
-    # that tests that set the global checkpointer config explicitly remain isolated.
+    # 延迟加载应用配置，镜像检查点单例模式，以便显式设置全局检查点配置的测试保持隔离
     from deerflow.config.app_config import _app_config
     from deerflow.config.checkpointer_config import get_checkpointer_config
 
@@ -144,10 +158,11 @@ def get_store() -> BaseStore:
 
 
 def reset_store() -> None:
-    """Reset the sync singleton, forcing recreation on the next call.
+    """重置同步单例，强制在下次调用时重新创建。
 
-    Closes any open backend connections and clears the cached instance.
-    Useful in tests or after a configuration change.
+    Note:
+        关闭任何打开的后端连接并清除缓存的实例。
+        在测试中或配置更改后很有用。
     """
     global _store, _store_ctx
     if _store_ctx is not None:
@@ -160,23 +175,26 @@ def reset_store() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sync context manager
+# 同步上下文管理器
 # ---------------------------------------------------------------------------
 
 
 @contextlib.contextmanager
 def store_context() -> Iterator[BaseStore]:
-    """Sync context manager that yields a Store and cleans up on exit.
+    """同步上下文管理器，产生存储并在退出时清理。
 
-    Unlike :func:`get_store`, this does **not** cache the instance — each
-    ``with`` block creates and destroys its own connection.  Use it in CLI
-    scripts or tests where you want deterministic cleanup::
+    与 :func:`get_store` 不同，这**不**缓存实例 —— 每个
+    ``with`` 块创建并销毁自己的连接。在需要确定性清理的 CLI 脚本或测试中使用它::
 
         with store_context() as store:
             store.put(("threads",), thread_id, {...})
 
-    Yields an :class:`~langgraph.store.memory.InMemoryStore` when no
-    checkpointer is configured in *config.yaml*.
+    Yields:
+        BaseStore 实例（如果未配置检查点则返回 InMemoryStore）
+
+    Note:
+        当在 *config.yaml* 中未配置检查点时产生
+        :class:`~langgraph.store.memory.InMemoryStore`。
     """
     config = get_app_config()
     if config.checkpointer is None:

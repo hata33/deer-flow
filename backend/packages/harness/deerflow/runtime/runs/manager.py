@@ -1,4 +1,8 @@
-"""In-memory run registry with optional persistent RunStore backing."""
+"""
+带有可选持久化 RunStore 支持的内存运行注册表。
+
+提供运行记录的内存管理，可选择将运行元数据持久化到存储后端。
+"""
 
 from __future__ import annotations
 
@@ -20,7 +24,25 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RunRecord:
-    """Mutable record for a single run."""
+    """单个运行的可变记录。
+
+    Attributes:
+        run_id: 运行唯一标识符
+        thread_id: 线程 ID
+        assistant_id: 助手 ID
+        status: 运行状态
+        on_disconnect: 断开连接模式
+        multitask_strategy: 多任务策略
+        metadata: 元数据字典
+        kwargs: 关键字参数字典
+        created_at: 创建时间（ISO 格式）
+        updated_at: 更新时间（ISO 格式）
+        task: 异步任务对象
+        abort_event: 中止事件
+        abort_action: 中止操作类型
+        error: 错误信息
+        model_name: 模型名称
+    """
 
     run_id: str
     thread_id: str
@@ -40,20 +62,33 @@ class RunRecord:
 
 
 class RunManager:
-    """In-memory run registry with optional persistent RunStore backing.
+    """带有可选持久化 RunStore 支持的内存运行注册表。
 
-    All mutations are protected by an asyncio lock. When a ``store`` is
-    provided, serializable metadata is also persisted to the store so
-    that run history survives process restarts.
+    所有突变都由 asyncio 锁保护。当提供 ``store`` 时，
+    可序列化的元数据也会持久化到存储，以便运行历史在进程重启后幸存。
+
+    Attributes:
+        _runs: 运行记录字典
+        _lock: 异步锁
+        _store: 可选的运行存储后端
     """
 
     def __init__(self, store: RunStore | None = None) -> None:
+        """初始化运行管理器。
+
+        Args:
+            store: 可选的运行存储后端
+        """
         self._runs: dict[str, RunRecord] = {}
         self._lock = asyncio.Lock()
         self._store = store
 
     async def _persist_to_store(self, record: RunRecord) -> None:
-        """Best-effort persist run record to backing store."""
+        """尽最大努力将运行记录持久化到后备存储。
+
+        Args:
+            record: 要持久化的运行记录
+        """
         if self._store is None:
             return
         try:
@@ -72,7 +107,12 @@ class RunManager:
             logger.warning("Failed to persist run %s to store", record.run_id, exc_info=True)
 
     async def update_run_completion(self, run_id: str, **kwargs) -> None:
-        """Persist token usage and completion data to the backing store."""
+        """将 token 使用量和完成数据持久化到后备存储。
+
+        Args:
+            run_id: 运行 ID
+            **kwargs: 完成数据
+        """
         if self._store is not None:
             try:
                 await self._store.update_run_completion(run_id, **kwargs)
@@ -89,7 +129,19 @@ class RunManager:
         kwargs: dict | None = None,
         multitask_strategy: str = "reject",
     ) -> RunRecord:
-        """Create a new pending run and register it."""
+        """创建新的待处理运行并注册它。
+
+        Args:
+            thread_id: 线程 ID
+            assistant_id: 助手 ID
+            on_disconnect: 断开连接模式
+            metadata: 元数据
+            kwargs: 关键字参数
+            multitask_strategy: 多任务策略
+
+        Returns:
+            创建的运行记录
+        """
         run_id = str(uuid.uuid4())
         now = _now_iso()
         record = RunRecord(
@@ -111,18 +163,40 @@ class RunManager:
         return record
 
     def get(self, run_id: str) -> RunRecord | None:
-        """Return a run record by ID, or ``None``."""
+        """按 ID 返回运行记录，如果不存在则返回 ``None``。
+
+        Args:
+            run_id: 运行 ID
+
+        Returns:
+            运行记录或 None
+        """
         return self._runs.get(run_id)
 
     async def list_by_thread(self, thread_id: str) -> list[RunRecord]:
-        """Return all runs for a given thread, newest first."""
+        """返回给定线程的所有运行，最新的在前。
+
+        Args:
+            thread_id: 线程 ID
+
+        Returns:
+            运行记录列表
+
+        Note:
+            字典插入顺序与创建顺序匹配，因此反转它即使在时间戳平局时
+            也能为我们提供确定性的最新优先结果。
+        """
         async with self._lock:
-            # Dict insertion order matches creation order, so reversing it gives
-            # us deterministic newest-first results even when timestamps tie.
             return [r for r in self._runs.values() if r.thread_id == thread_id]
 
     async def set_status(self, run_id: str, status: RunStatus, *, error: str | None = None) -> None:
-        """Transition a run to a new status."""
+        """将运行转换为新状态。
+
+        Args:
+            run_id: 运行 ID
+            status: 新状态
+            error: 可选的错误信息
+        """
         async with self._lock:
             record = self._runs.get(run_id)
             if record is None:
@@ -140,7 +214,12 @@ class RunManager:
         logger.info("Run %s -> %s", run_id, status.value)
 
     async def update_model_name(self, run_id: str, model_name: str | None) -> None:
-        """Update the model name for a run."""
+        """更新运行的模型名称。
+
+        Args:
+            run_id: 运行 ID
+            model_name: 模型名称
+        """
         async with self._lock:
             record = self._runs.get(run_id)
             if record is None:
@@ -152,14 +231,17 @@ class RunManager:
         logger.info("Run %s model_name=%s", run_id, model_name)
 
     async def cancel(self, run_id: str, *, action: str = "interrupt") -> bool:
-        """Request cancellation of a run.
+        """请求取消运行。
 
         Args:
-            run_id: The run ID to cancel.
-            action: "interrupt" keeps checkpoint, "rollback" reverts to pre-run state.
+            run_id: 要取消的运行 ID
+            action: "interrupt" 保留检查点，"rollback" 恢复到运行前状态
 
-        Sets the abort event with the action reason and cancels the asyncio task.
-        Returns ``True`` if the run was in-flight and cancellation was initiated.
+        Returns:
+            如果运行正在进行并已启动取消，则返回 ``True``
+
+        Note:
+            使用操作原因设置中止事件并取消 asyncio 任务。
         """
         async with self._lock:
             record = self._runs.get(run_id)
@@ -187,14 +269,31 @@ class RunManager:
         multitask_strategy: str = "reject",
         model_name: str | None = None,
     ) -> RunRecord:
-        """Atomically check for inflight runs and create a new one.
+        """原子地检查进行中的运行并创建新运行。
 
-        For ``reject`` strategy, raises ``ConflictError`` if thread
-        already has a pending/running run.  For ``interrupt``/``rollback``,
-        cancels inflight runs before creating.
+        Args:
+            thread_id: 线程 ID
+            assistant_id: 助手 ID
+            on_disconnect: 断开连接模式
+            metadata: 元数据
+            kwargs: 关键字参数
+            multitask_strategy: 多任务策略
+            model_name: 模型名称
 
-        This method holds the lock across both the check and the insert,
-        eliminating the TOCTOU race in separate ``has_inflight`` + ``create``.
+        Returns:
+            创建的运行记录
+
+        Raises:
+            ConflictError: 如果策略为 "reject" 且线程已有活动运行
+            UnsupportedStrategyError: 如果策略不受支持
+
+        Note:
+            对于 ``reject`` 策略，如果线程已有待处理/运行的运行，
+            则引发 ``ConflictError``。对于 ``interrupt``/``rollback``，
+            在创建前取消进行中的运行。
+
+            此方法在检查和插入期间都持有锁，消除了单独的
+            ``has_inflight`` + ``create`` 中的 TOCTOU 竞争。
         """
         run_id = str(uuid.uuid4())
         now = _now_iso()
@@ -245,12 +344,24 @@ class RunManager:
         return record
 
     async def has_inflight(self, thread_id: str) -> bool:
-        """Return ``True`` if *thread_id* has a pending or running run."""
+        """如果 *thread_id* 有待处理或正在运行的运行，则返回 ``True``。
+
+        Args:
+            thread_id: 线程 ID
+
+        Returns:
+            是否有进行中的运行
+        """
         async with self._lock:
             return any(r.thread_id == thread_id and r.status in (RunStatus.pending, RunStatus.running) for r in self._runs.values())
 
     async def cleanup(self, run_id: str, *, delay: float = 300) -> None:
-        """Remove a run record after an optional delay."""
+        """在可选延迟后删除运行记录。
+
+        Args:
+            run_id: 运行 ID
+            delay: 延迟秒数
+        """
         if delay > 0:
             await asyncio.sleep(delay)
         async with self._lock:
@@ -259,8 +370,8 @@ class RunManager:
 
 
 class ConflictError(Exception):
-    """Raised when multitask_strategy=reject and thread has inflight runs."""
+    """当 multitask_strategy=reject 且线程有进行中的运行时引发。"""
 
 
 class UnsupportedStrategyError(Exception):
-    """Raised when a multitask_strategy value is not yet implemented."""
+    """当 multitask_strategy 值尚未实现时引发。"""

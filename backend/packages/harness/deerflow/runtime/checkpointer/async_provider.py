@@ -1,18 +1,18 @@
-"""Async checkpointer factory.
+"""
+异步检查点工厂模块。
 
-Provides an **async context manager** for long-running async servers that need
-proper resource cleanup.
+为需要适当资源清理的长期运行的异步服务器提供**异步上下文管理器**。
 
-Supported backends: memory, sqlite, postgres.
+支持的后端: memory, sqlite, postgres。
 
-Usage (e.g. FastAPI lifespan)::
+用法（例如 FastAPI lifespan）::
 
     from deerflow.runtime.checkpointer.async_provider import make_checkpointer
 
     async with make_checkpointer() as checkpointer:
-        app.state.checkpointer = checkpointer  # InMemorySaver if not configured
+        app.state.checkpointer = checkpointer  # 如果未配置则为 InMemorySaver
 
-For sync usage see :mod:`deerflow.runtime.checkpointer.provider`.
+同步用法参见 :mod:`deerflow.runtime.checkpointer.provider`。
 """
 
 from __future__ import annotations
@@ -35,13 +35,24 @@ from deerflow.runtime.store._sqlite_utils import ensure_sqlite_parent_dir, resol
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Async factory
+# 异步工厂
 # ---------------------------------------------------------------------------
 
 
 @contextlib.asynccontextmanager
 async def _async_checkpointer(config) -> AsyncIterator[Checkpointer]:
-    """Async context manager that constructs and tears down a checkpointer."""
+    """构造和拆除检查点的异步上下文管理器。
+
+    Args:
+        config: 检查点配置
+
+    Yields:
+        Checkpointer 实例
+
+    Raises:
+        ImportError: 如果缺少所需的依赖
+        ValueError: 如果配置无效
+    """
     if config.type == "memory":
         from langgraph.checkpoint.memory import InMemorySaver
 
@@ -79,13 +90,24 @@ async def _async_checkpointer(config) -> AsyncIterator[Checkpointer]:
 
 
 # ---------------------------------------------------------------------------
-# Public async context manager
+# 公共异步上下文管理器
 # ---------------------------------------------------------------------------
 
 
 @contextlib.asynccontextmanager
 async def _async_checkpointer_from_database(db_config) -> AsyncIterator[Checkpointer]:
-    """Async context manager that constructs a checkpointer from unified DatabaseConfig."""
+    """从统一的 DatabaseConfig 构造检查点的异步上下文管理器。
+
+    Args:
+        db_config: 数据库配置
+
+    Yields:
+        Checkpointer 实例
+
+    Raises:
+        ImportError: 如果缺少所需的依赖
+        ValueError: 如果配置无效
+    """
     if db_config.backend == "memory":
         from langgraph.checkpoint.memory import InMemorySaver
 
@@ -124,37 +146,43 @@ async def _async_checkpointer_from_database(db_config) -> AsyncIterator[Checkpoi
 
 @contextlib.asynccontextmanager
 async def make_checkpointer(app_config: AppConfig | None = None) -> AsyncIterator[Checkpointer]:
-    """Async context manager that yields a checkpointer for the caller's lifetime.
-    Resources are opened on enter and closed on exit -- no global state::
+    """异步上下文管理器，在调用者的生命周期内产生检查点。
+    资源在进入时打开，在退出时关闭 —— 无全局状态::
 
         async with make_checkpointer(app_config) as checkpointer:
             app.state.checkpointer = checkpointer
 
-    Yields an ``InMemorySaver`` when no checkpointer is configured in *config.yaml*.
+    当在 *config.yaml* 中未配置检查点时产生 ``InMemorySaver``。
 
-    Priority:
-    1. Legacy ``checkpointer:`` config section (backward compatible)
-    2. Unified ``database:`` config section
-    3. Default InMemorySaver
+    优先级:
+    1. 遗留的 ``checkpointer:`` 配置节（向后兼容）
+    2. 统一的 ``database:`` 配置节
+    3. 默认 InMemorySaver
+
+    Args:
+        app_config: 应用配置，如果为 None 则使用全局配置
+
+    Yields:
+        Checkpointer 实例
     """
 
     if app_config is None:
         app_config = get_app_config()
 
-    # Legacy: standalone checkpointer config takes precedence
+    # 遗留：独立的检查点配置优先
     if app_config.checkpointer is not None:
         async with _async_checkpointer(app_config.checkpointer) as saver:
             yield saver
             return
 
-    # Unified database config
+    # 统一数据库配置
     db_config = getattr(app_config, "database", None)
     if db_config is not None and db_config.backend != "memory":
         async with _async_checkpointer_from_database(db_config) as saver:
             yield saver
             return
 
-    # Default: in-memory
+    # 默认：内存中
     from langgraph.checkpoint.memory import InMemorySaver
 
     yield InMemorySaver()

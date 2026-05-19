@@ -1,13 +1,13 @@
-"""Async Store factory — backend mirrors the configured checkpointer.
+"""异步存储工厂模块 —— 后端镜像配置的检查点。
 
-The store and checkpointer share the same ``checkpointer`` section in
-*config.yaml* so they always use the same persistence backend:
+存储和检查点共享 *config.yaml* 中的同一 ``checkpointer`` 节，
+因此它们始终使用相同的持久化后端：
 
 - ``type: memory``   → :class:`langgraph.store.memory.InMemoryStore`
 - ``type: sqlite``   → :class:`langgraph.store.sqlite.aio.AsyncSqliteStore`
 - ``type: postgres`` → :class:`langgraph.store.postgres.aio.AsyncPostgresStore`
 
-Usage (e.g. FastAPI lifespan)::
+用法（例如 FastAPI lifespan）::
 
     from deerflow.runtime.store import make_store
 
@@ -29,16 +29,23 @@ from deerflow.runtime.store.provider import POSTGRES_CONN_REQUIRED, POSTGRES_STO
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Internal backend factory
+# 内部后端工厂
 # ---------------------------------------------------------------------------
 
 
 @contextlib.asynccontextmanager
 async def _async_store(config) -> AsyncIterator[BaseStore]:
-    """Async context manager that constructs and tears down a Store.
+    """构造和拆除存储的异步上下文管理器。
 
-    The ``config`` argument is a :class:`deerflow.config.checkpointer_config.CheckpointerConfig`
-    instance — the same object used by the checkpointer factory.
+    Args:
+        config: CheckpointerConfig 实例 —— 与检查点工厂使用的对象相同
+
+    Yields:
+        BaseStore 实例
+
+    Raises:
+        ImportError: 如果缺少所需的依赖
+        ValueError: 如果配置无效
     """
     if config.type == "memory":
         from langgraph.store.memory import InMemoryStore
@@ -81,24 +88,30 @@ async def _async_store(config) -> AsyncIterator[BaseStore]:
 
 
 # ---------------------------------------------------------------------------
-# Public async context manager
+# 公共异步上下文管理器
 # ---------------------------------------------------------------------------
 
 
 @contextlib.asynccontextmanager
 async def make_store(app_config: AppConfig | None = None) -> AsyncIterator[BaseStore]:
-    """Async context manager that yields a Store whose backend matches the
-    configured checkpointer.
+    """异步上下文管理器，产生后端与配置的检查点匹配的存储。
 
-    Reads from the same ``checkpointer`` section of *config.yaml* used by
-    :func:`deerflow.runtime.checkpointer.async_provider.make_checkpointer` so
-    that both singletons always use the same persistence technology::
+    从 *config.yaml* 的同一 ``checkpointer`` 节读取，由
+    :func:`deerflow.runtime.checkpointer.async_provider.make_checkpointer` 使用，
+    因此两个单例始终使用相同的持久化技术::
 
         async with make_store(app_config) as store:
             app.state.store = store
 
-    Yields an :class:`~langgraph.store.memory.InMemoryStore` when no
-    ``checkpointer`` section is configured (emits a WARNING in that case).
+    Args:
+        app_config: 应用配置，如果为 None 则使用全局配置
+
+    Yields:
+        BaseStore 实例
+
+    Note:
+        当未配置 ``checkpointer`` 节时产生
+        :class:`~langgraph.store.memory.InMemoryStore`（在这种情况下发出警告）。
     """
     if app_config is None:
         app_config = get_app_config()
