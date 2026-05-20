@@ -54,15 +54,13 @@ class RunStore(abc.ABC):
         """
 
     @abc.abstractmethod
-    async def get(self, run_id: str) -> dict[str, Any] | None:
-        """获取运行记录。
-
-        Args:
-            run_id: 运行 ID
-
-        Returns:
-            运行记录字典或 None
-        """
+    async def get(
+        self,
+        run_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        pass
 
     @abc.abstractmethod
     async def list_by_thread(
@@ -106,6 +104,15 @@ class RunStore(abc.ABC):
         Args:
             run_id: 运行 ID
         """
+
+    @abc.abstractmethod
+    async def update_model_name(
+        self,
+        run_id: str,
+        model_name: str | None,
+    ) -> None:
+        """Update the model_name field for an existing run."""
+        pass
 
     @abc.abstractmethod
     async def update_run_completion(

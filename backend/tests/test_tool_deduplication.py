@@ -65,8 +65,7 @@ def _make_minimal_config(tools):
 
 @patch("deerflow.tools.tools.get_app_config")
 @patch("deerflow.tools.tools.is_host_bash_allowed", return_value=True)
-@patch("deerflow.tools.tools.reset_deferred_registry")
-def test_config_loaded_async_only_tool_gets_sync_wrapper(mock_reset, mock_bash, mock_cfg):
+def test_config_loaded_async_only_tool_gets_sync_wrapper(mock_bash, mock_cfg):
     """Config-loaded async-only tools can still be invoked by sync clients."""
 
     async def async_tool_impl(x: int) -> str:
@@ -98,8 +97,65 @@ def test_config_loaded_async_only_tool_gets_sync_wrapper(mock_reset, mock_bash, 
 
 @patch("deerflow.tools.tools.get_app_config")
 @patch("deerflow.tools.tools.is_host_bash_allowed", return_value=True)
-@patch("deerflow.tools.tools.reset_deferred_registry")
-def test_no_duplicates_returned(mock_reset, mock_bash, mock_cfg):
+def test_subagent_async_only_tool_gets_sync_wrapper(mock_bash, mock_cfg):
+    """Async-only tools added through the subagent path can be invoked by sync clients."""
+
+    async def async_tool_impl(x: int) -> str:
+        return f"subagent: {x}"
+
+    async_tool = StructuredTool(
+        name="async_subagent_tool",
+        description="Async-only subagent test tool.",
+        args_schema=AsyncToolArgs,
+        func=None,
+        coroutine=async_tool_impl,
+    )
+    mock_cfg.return_value = _make_minimal_config([])
+
+    with (
+        patch("deerflow.tools.tools.BUILTIN_TOOLS", []),
+        patch("deerflow.tools.tools.SUBAGENT_TOOLS", [async_tool]),
+    ):
+        result = get_available_tools(include_mcp=False, subagent_enabled=True, app_config=mock_cfg.return_value)
+
+    assert async_tool in result
+    assert async_tool.func is not None
+    assert async_tool.invoke({"x": 7}) == "subagent: 7"
+
+
+@patch("deerflow.tools.tools.get_app_config")
+@patch("deerflow.tools.tools.is_host_bash_allowed", return_value=True)
+def test_acp_async_only_tool_gets_sync_wrapper(mock_bash, mock_cfg):
+    """Async-only ACP tools can be invoked by sync clients."""
+
+    async def async_tool_impl(x: int) -> str:
+        return f"acp: {x}"
+
+    async_tool = StructuredTool(
+        name="invoke_acp_agent",
+        description="Async-only ACP test tool.",
+        args_schema=AsyncToolArgs,
+        func=None,
+        coroutine=async_tool_impl,
+    )
+    config = _make_minimal_config([])
+    config.acp_agents = {"codex": object()}
+    mock_cfg.return_value = config
+
+    with (
+        patch("deerflow.tools.tools.BUILTIN_TOOLS", []),
+        patch("deerflow.tools.builtins.invoke_acp_agent_tool.build_invoke_acp_agent_tool", return_value=async_tool),
+    ):
+        result = get_available_tools(include_mcp=False, app_config=config)
+
+    assert async_tool in result
+    assert async_tool.func is not None
+    assert async_tool.invoke({"x": 9}) == "acp: 9"
+
+
+@patch("deerflow.tools.tools.get_app_config")
+@patch("deerflow.tools.tools.is_host_bash_allowed", return_value=True)
+def test_no_duplicates_returned(mock_bash, mock_cfg):
     """get_available_tools() never returns two tools with the same name."""
     mock_cfg.return_value = _make_minimal_config([])
 
@@ -113,8 +169,7 @@ def test_no_duplicates_returned(mock_reset, mock_bash, mock_cfg):
 
 @patch("deerflow.tools.tools.get_app_config")
 @patch("deerflow.tools.tools.is_host_bash_allowed", return_value=True)
-@patch("deerflow.tools.tools.reset_deferred_registry")
-def test_first_occurrence_wins(mock_reset, mock_bash, mock_cfg):
+def test_first_occurrence_wins(mock_bash, mock_cfg):
     """When duplicates exist, the first occurrence is kept."""
     mock_cfg.return_value = _make_minimal_config([])
 
@@ -132,8 +187,7 @@ def test_first_occurrence_wins(mock_reset, mock_bash, mock_cfg):
 
 @patch("deerflow.tools.tools.get_app_config")
 @patch("deerflow.tools.tools.is_host_bash_allowed", return_value=True)
-@patch("deerflow.tools.tools.reset_deferred_registry")
-def test_duplicate_triggers_warning(mock_reset, mock_bash, mock_cfg, caplog):
+def test_duplicate_triggers_warning(mock_bash, mock_cfg, caplog):
     """A warning is logged for every skipped duplicate."""
     import logging
 
