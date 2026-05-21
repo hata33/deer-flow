@@ -12,6 +12,7 @@
 | [04-concurrency-control.md](04-concurrency-control.md) | 并发控制：多任务策略（reject/interrupt/rollback）的设计与实现 |
 | [05-event-streaming.md](05-event-streaming.md) | 事件流系统：StreamBridge 如何解耦生产者和消费者 |
 | [06-event-tracking.md](06-event-tracking.md) | 事件追踪：RunJournal 如何通过回调机制捕获运行全貌 |
+| [07-runtime-instances.md](07-runtime-instances.md) | 运行时实例生命周期：RunJournal/Agent 创建策略、多用户并发模型、中断缓存机制 |
 
 ## 核心入口
 
