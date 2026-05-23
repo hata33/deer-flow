@@ -10,15 +10,16 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                      调用方（外部世界）                           │
 │                                                                  │
-│  lead_agent/prompt.py          middlewares/                      │
-│  ┌──────────────────────┐      ┌──────────────────────────┐     │
-│  │ apply_prompt_template│      │ MemoryMiddleware          │     │
-│  │  └─ _get_memory_     │      │ SummarizationMiddleware   │     │
-│  │     context()        │      │  └─ _fire_hooks()         │     │
-│  └──────────┬───────────┘      └──────┬──────────┬─────────┘     │
-│             │                         │          │               │
-│             │ ①注入                   │ ②防抖    │ ③立即刷入     │
-└─────────────┼─────────────────────────┼──────────┼───────────────┘
+│  lead_agent/prompt.py              middlewares/                  │
+│  ┌──────────────────────────┐      ┌────────────────────────┐  │
+│  │ DynamicContextMiddleware │      │ MemoryMiddleware        │  │
+│  │  └─ _build_full_reminder │      │ SummarizationMiddleware │  │
+│  │      └─ _get_memory_     │      │  └─ _fire_hooks()       │  │
+│  │         context()        │      └──────┬─────────┬────────┘  │
+│  └────────────┬─────────────┘             │         │           │
+│               │                           │         │           │
+│               │ ①运行时注入               │ ②防抖   │ ③立即刷入 │
+└───────────────┼───────────────────────────┼─────────┼───────────┘
               │                         │          │
 ┌─────────────▼─────────────────────────▼──────────▼───────────────┐
 │                      memory 包（内部世界）                        │
@@ -82,28 +83,38 @@ def _get_memory_context(agent_name, *, app_config) -> str:
     return f"<memory>\n{memory_content}\n</memory>"
 ```
 
-**调用时机**：`apply_prompt_template()` 构建 system prompt 时，将返回值填充到模板的 `{memory}` 占位符：
+**调用时机**：记忆不在 system prompt 模板中注入，而是由 `DynamicContextMiddleware` 在运行时动态注入。流程如下：
+
+1. 首轮对话触发 `before_agent()` → `_inject()` → `_build_full_reminder()`
+2. `_build_full_reminder()` 调用 `_get_memory_context()` 获取记忆文本，拼上当前日期，组装为 `<system-reminder>`
+3. 通过 **ID-swap** 注入：用原始用户消息的 ID 创建 reminder 消息（LangGraph 原位替换），用户消息用 `{id}__user` 紧随其后
+4. reminder 消息标记 `hide_from_ui=True`，前端不显示
 
 ```
-<role>You are DeerFlow 2.0...</role>
-<soul>...</soul>
-<memory>                         ← 注入点
+<system-reminder>
+<memory>                                   ← 记忆注入点
 User Context:
 - Work: ...
 Facts:
 - [preference | 0.95] 用户偏好 TypeScript
 </memory>
-<thinking_style>...</thinking_style>
+
+<current_date>2026-05-21, Wednesday</current_date>   ← 日期注入点
+</system-reminder>
 ```
+
+**为什么不放在 system prompt 里**：`apply_prompt_template()` 构建的 system prompt 是**全静态的**（不含 `{memory}` 占位符），这样可以跨用户、跨会话最大化 prefix-cache 复用。记忆和日期通过 `DynamicContextMiddleware` 在运行时动态注入，system prompt 本身保持不变。
 
 **关键细节**：
 
 | 要点 | 实现 |
 |------|------|
-| 何时注入 | `make_lead_agent()` 构建时，不是运行时 |
+| 何时注入 | 运行时，首轮对话的 `before_agent()` 中 |
+| 注入方式 | ID-swap：用原始 HumanMessage 的 ID 创建 reminder 消息，add_messages 原位替换 |
 | 隔离维度 | `(agent_name, user_id)` 二级 key |
 | user_id 来源 | `get_effective_user_id()` → 无认证时为 `"default"` |
 | 异常安全 | 整个函数 try/except 包裹，失败返回空字符串 |
+| 午夜跨越 | 检测日期变化，注入轻量 date-update reminder（不含记忆，仅更新日期） |
 
 ### 2.2 格式化：`format_memory_for_injection()`
 
@@ -748,5 +759,6 @@ T+36.0s 下次 make_lead_agent()
 | `memory_config.py` | `config/` | `MemoryConfig` Pydantic 模型 |
 | `memory_middleware.py` | `agents/middlewares/` | `MemoryMiddleware.after_agent()` |
 | `summarization_middleware.py` | `agents/middlewares/` | `_fire_hooks()` 调用钩子 |
-| `lead_agent/prompt.py` | `agents/lead_agent/` | `_get_memory_context()` 注入 |
-| `lead_agent/agent.py` | `agents/lead_agent/` | `apply_prompt_template()` 组装 |
+| `dynamic_context_middleware.py` | `agents/middlewares/` | `DynamicContextMiddleware` 运行时注入记忆+日期 |
+| `lead_agent/prompt.py` | `agents/lead_agent/` | `_get_memory_context()` 提供记忆文本，供 DynamicContextMiddleware 调用 |
+| `lead_agent/agent.py` | `agents/lead_agent/` | `apply_prompt_template()` 组装（不含记忆，记忆由中间件注入） |
