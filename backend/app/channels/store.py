@@ -1,4 +1,31 @@
-"""ChannelStore — persists IM chat-to-DeerFlow thread mappings."""
+"""ChannelStore — 持久化 IM 会话到 DeerFlow 线程的映射关系。
+
+**设计思路**
+
+每个 IM 平台都有自己标识会话的方式（chat_id、topic_id 等），
+而 DeerFlow 使用 UUID 格式的 thread_id 来管理对话。ChannelStore
+负责维护这两者之间的双向映射，使得同一 IM 会话的多次消息能够
+复用同一个 DeerFlow 线程。
+
+**键结构**
+
++---------------------------------------+---------------------------------+
+| 键格式                                 | 适用场景                         |
++=======================================+=================================+
+| ``<channel>:<chat_id>``                | 私聊（Telegram/WeChat）          |
++---------------------------------------+---------------------------------+
+| ``<channel>:<chat_id>:<topic_id>``     | 群聊中的话题/线程（飞书/Slack）  |
++---------------------------------------+---------------------------------+
+
+**存储格式**
+
+JSON 文件，原子写入（临时文件 + rename），线程安全（threading.Lock）。
+适用于中小规模部署；高并发场景可替换为数据库后端。
+
+**文件位置**
+
+默认路径：``.deer-flow/channels/store.json``（通过 ``Paths.base_dir`` 解析）
+"""
 
 from __future__ import annotations
 
@@ -50,7 +77,8 @@ class ChannelStore:
             try:
                 return json.loads(self._path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
-                logger.warning("Corrupt channel store at %s, starting fresh", self._path)
+                logger.warning(
+                    "Corrupt channel store at %s, starting fresh", self._path)
         return {}
 
     def _save(self) -> None:
@@ -127,7 +155,8 @@ class ChannelStore:
 
             # Remove all mappings for this channel/chat_id (base and any topic-specific keys).
             prefix = self._key(channel_name, chat_id)
-            keys_to_delete = [k for k in self._data if k == prefix or k.startswith(prefix + ":")]
+            keys_to_delete = [k for k in self._data if k ==
+                              prefix or k.startswith(prefix + ":")]
             if not keys_to_delete:
                 return False
 
@@ -146,7 +175,8 @@ class ChannelStore:
             topic = parts[2] if len(parts) > 2 else None
             if channel_name and ch != channel_name:
                 continue
-            item: dict[str, Any] = {"channel_name": ch, "chat_id": chat, **entry}
+            item: dict[str, Any] = {
+                "channel_name": ch, "chat_id": chat, **entry}
             if topic is not None:
                 item["topic_id"] = topic
             results.append(item)

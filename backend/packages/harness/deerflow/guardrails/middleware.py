@@ -144,11 +144,13 @@ class GuardrailMiddleware(AgentMiddleware[AgentState]):
         except Exception:
             logger.exception("Guardrail provider error (sync)")
             if self.fail_closed:
-                decision = GuardrailDecision(allow=False, reasons=[GuardrailReason(code="oap.evaluator_error", message="guardrail provider error (fail-closed)")])
+                decision = GuardrailDecision(allow=False, reasons=[GuardrailReason(
+                    code="oap.evaluator_error", message="guardrail provider error (fail-closed)")])
             else:
                 return handler(request)
         if not decision.allow:
-            logger.warning("Guardrail denied: tool=%s policy=%s code=%s", gr.tool_name, decision.policy_id, decision.reasons[0].code if decision.reasons else "unknown")
+            logger.warning("Guardrail denied: tool=%s policy=%s code=%s", gr.tool_name,
+                           decision.policy_id, decision.reasons[0].code if decision.reasons else "unknown")
             return self._build_denied_message(request, decision)
         return handler(request)
 
@@ -178,10 +180,12 @@ class GuardrailMiddleware(AgentMiddleware[AgentState]):
         except Exception:
             logger.exception("Guardrail provider error (async)")
             if self.fail_closed:
-                decision = GuardrailDecision(allow=False, reasons=[GuardrailReason(code="oap.evaluator_error", message="guardrail provider error (fail-closed)")])
+                decision = GuardrailDecision(allow=False, reasons=[GuardrailReason(
+                    code="oap.evaluator_error", message="guardrail provider error (fail-closed)")])
             else:
                 return await handler(request)
         if not decision.allow:
-            logger.warning("Guardrail denied: tool=%s policy=%s code=%s", gr.tool_name, decision.policy_id, decision.reasons[0].code if decision.reasons else "unknown")
+            logger.warning("Guardrail denied: tool=%s policy=%s code=%s", gr.tool_name,
+                           decision.policy_id, decision.reasons[0].code if decision.reasons else "unknown")
             return self._build_denied_message(request, decision)
         return await handler(request)

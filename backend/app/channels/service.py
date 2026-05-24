@@ -1,4 +1,65 @@
-"""ChannelService — manages the lifecycle of all IM channels."""
+"""ChannelService — 管理所有 IM 频道的生命周期。
+
+**定位**
+
+ChannelService 是频道系统的启动入口和生命周期管理器。它在 Gateway
+应用启动时被 lifespan 调用，负责：
+
+1. 从 ``config.yaml`` 的 ``channels`` 配置段读取各频道配置
+2. 实例化 MessageBus、ChannelStore、ChannelManager
+3. 根据配置中 ``enabled: true`` 的频道，延迟导入并启动对应适配器
+4. 提供运行状态查询和频道热重启功能
+
+**启动流程**
+
+::
+
+    Gateway lifespan
+        │
+        ▼
+    start_channel_service(app_config)
+        │
+        ▼
+    ChannelService.from_app_config()
+        ├── 创建 MessageBus (异步队列)
+        ├── 创建 ChannelStore (线程映射持久化)
+        └── 创建 ChannelManager (Agent 调度器)
+        │
+        ▼
+    ChannelService.start()
+        ├── 启动 ChannelManager._dispatch_loop()
+        └── 遍历 channels 配置
+            ├── enabled=true  → 导入适配器类 → 启动
+            └── enabled=false → 跳过
+
+**频道注册表**
+
+每个已注册的频道名映射到其完整导入路径：
+
+.. code-block:: python
+
+    _CHANNEL_REGISTRY = {
+        "dingtalk": "app.channels.dingtalk:DingTalkChannel",
+        "discord":  "app.channels.discord:DiscordChannel",
+        "feishu":   "app.channels.feishu:FeishuChannel",
+        "slack":    "app.channels.slack:SlackChannel",
+        "telegram": "app.channels.telegram:TelegramChannel",
+        "wechat":   "app.channels.wechat:WechatChannel",
+        "wecom":    "app.channels.wecom:WeComChannel",
+    }
+
+频道通过 DeerFlow 的 ``resolve_class()`` 反射机制延迟导入，
+避免未安装的 SDK 依赖导致启动失败。
+
+**服务 URL 解析**
+
+ChannelManager 需要两个 URL 来与 Gateway 通信：
+
+- ``langgraph_url``: Gateway 的 LangGraph 兼容 API（默认 http://localhost:8001/api）
+- ``gateway_url``: Gateway 的辅助查询 API（默认 http://localhost:8001）
+
+解析优先级：config.yaml > 环境变量 > 默认值
+"""
 
 from __future__ import annotations
 
@@ -63,16 +124,20 @@ class ChannelService:
         self.bus = MessageBus()
         self.store = ChannelStore()
         config = dict(channels_config or {})
-        langgraph_url = _resolve_service_url(config, "langgraph_url", _CHANNELS_LANGGRAPH_URL_ENV, DEFAULT_LANGGRAPH_URL)
-        gateway_url = _resolve_service_url(config, "gateway_url", _CHANNELS_GATEWAY_URL_ENV, DEFAULT_GATEWAY_URL)
+        langgraph_url = _resolve_service_url(
+            config, "langgraph_url", _CHANNELS_LANGGRAPH_URL_ENV, DEFAULT_LANGGRAPH_URL)
+        gateway_url = _resolve_service_url(
+            config, "gateway_url", _CHANNELS_GATEWAY_URL_ENV, DEFAULT_GATEWAY_URL)
         default_session = config.pop("session", None)
-        channel_sessions = {name: channel_config.get("session") for name, channel_config in config.items() if isinstance(channel_config, dict)}
+        channel_sessions = {name: channel_config.get(
+            "session") for name, channel_config in config.items() if isinstance(channel_config, dict)}
         self.manager = ChannelManager(
             bus=self.bus,
             store=self.store,
             langgraph_url=langgraph_url,
             gateway_url=gateway_url,
-            default_session=default_session if isinstance(default_session, dict) else None,
+            default_session=default_session if isinstance(
+                default_session, dict) else None,
             channel_sessions=channel_sessions,
         )
         self._channels: dict[str, Any] = {}  # name -> Channel instance
@@ -105,7 +170,8 @@ class ChannelService:
                 continue
             if not channel_config.get("enabled", False):
                 cred_keys = _CHANNEL_CREDENTIAL_KEYS.get(name, [])
-                has_creds = any(not isinstance(channel_config.get(k), bool) and channel_config.get(k) is not None and str(channel_config[k]).strip() for k in cred_keys)
+                has_creds = any(not isinstance(channel_config.get(k), bool) and channel_config.get(
+                    k) is not None and str(channel_config[k]).strip() for k in cred_keys)
                 if has_creds:
                     logger.warning(
                         "Channel '%s' has credentials configured but is disabled. Set enabled: true under channels.%s in config.yaml to activate it.",
@@ -119,7 +185,8 @@ class ChannelService:
             await self._start_channel(name, channel_config)
 
         self._running = True
-        logger.info("ChannelService started with channels: %s", list(self._channels.keys()))
+        logger.info("ChannelService started with channels: %s",
+                    list(self._channels.keys()))
 
     async def stop(self) -> None:
         """Stop all channels and the manager."""
@@ -174,7 +241,8 @@ class ChannelService:
             await channel.start()
             if not channel.is_running:
                 self._channels.pop(name, None)
-                logger.error("Channel %s did not enter a running state after start()", name)
+                logger.error(
+                    "Channel %s did not enter a running state after start()", name)
                 return False
             logger.info("Channel %s started", name)
             return True

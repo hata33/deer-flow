@@ -1,4 +1,41 @@
-"""Telegram channel — connects via long-polling (no public IP needed)."""
+"""Telegram IM 频道实现。
+
+**连接方式**
+
+使用 Telegram Bot API 长轮询（getUpdates），无需公网 IP。
+SDK: ``python-telegram-bot``。
+
+**命令处理**
+
+支持以下 Telegram 命令（除 /start 外均转发到 ChannelManager）：
+
+- ``/start``: 本地处理，显示欢迎消息
+- ``/new``, ``/status``, ``/models``, ``/memory``, ``/help``: 转发到调度器
+
+**线程模型**
+
+python-telegram-bot 的 ``run_polling()`` 会调用 ``add_signal_handler()``，
+该函数只能在主线程中工作。因此 Telegram 频道在独立线程中手动初始化和
+启动 polling（而非使用 run_polling 便利方法）。
+
+**消息线程**
+
+通过 ``reply_to_message_id`` 实现消息关联，使 Telegram 中的回复
+形成视觉上的线程关系。使用 ``_last_bot_message`` 字典追踪每个
+chat 的最后一条机器人消息。
+
+**文件发送**
+
+- 图片（≤10MB）: 使用 ``send_photo`` 发送
+- 其他文件（≤50MB）: 使用 ``send_document`` 发送
+- 超大文件跳过并记录警告
+
+**路由规则**
+
+- 私聊: topic_id=None（所有消息共享一个线程）
+- 群聊: topic_id=回复消息的 message_id 或当前消息的 message_id
+- chat_id = effective_chat.id
+"""
 
 from __future__ import annotations
 
@@ -43,7 +80,8 @@ class TelegramChannel(Channel):
         try:
             from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
         except ImportError:
-            logger.error("python-telegram-bot is not installed. Install it with: uv add python-telegram-bot")
+            logger.error(
+                "python-telegram-bot is not installed. Install it with: uv add python-telegram-bot")
             return
 
         bot_token = self.config.get("bot_token", "")
@@ -67,7 +105,8 @@ class TelegramChannel(Channel):
         app.add_handler(CommandHandler("help", self._cmd_generic))
 
         # General message handler
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_text))
+        app.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND, self._on_text))
 
         self._application = app
 
@@ -124,9 +163,11 @@ class TelegramChannel(Channel):
                     )
                     await asyncio.sleep(delay)
 
-        logger.error("[Telegram] send failed after %d attempts: %s", _max_retries, last_exc)
+        logger.error("[Telegram] send failed after %d attempts: %s",
+                     _max_retries, last_exc)
         if last_exc is None:
-            raise RuntimeError("Telegram send failed without an exception from any attempt")
+            raise RuntimeError(
+                "Telegram send failed without an exception from any attempt")
         raise last_exc
 
     async def send_file(self, msg: OutboundMessage, attachment: ResolvedAttachment) -> bool:
@@ -141,7 +182,8 @@ class TelegramChannel(Channel):
 
         # Telegram limits: 10MB for photos, 50MB for documents
         if attachment.size > 50 * 1024 * 1024:
-            logger.warning("[Telegram] file too large (%d bytes), skipping: %s", attachment.size, attachment.filename)
+            logger.warning("[Telegram] file too large (%d bytes), skipping: %s",
+                           attachment.size, attachment.filename)
             return False
 
         bot = self._application.bot
@@ -165,10 +207,12 @@ class TelegramChannel(Channel):
                     sent = await bot.send_document(**kwargs)
 
             self._last_bot_message[msg.chat_id] = sent.message_id
-            logger.info("[Telegram] file sent: %s to chat=%s", attachment.filename, msg.chat_id)
+            logger.info("[Telegram] file sent: %s to chat=%s",
+                        attachment.filename, msg.chat_id)
             return True
         except Exception:
-            logger.exception("[Telegram] failed to send file: %s", attachment.filename)
+            logger.exception(
+                "[Telegram] failed to send file: %s", attachment.filename)
             return False
 
     # -- helpers -----------------------------------------------------------
@@ -184,9 +228,11 @@ class TelegramChannel(Channel):
                 text="Working on it...",
                 reply_to_message_id=reply_to_message_id,
             )
-            logger.info("[Telegram] 'Working on it...' reply sent in chat=%s", chat_id)
+            logger.info(
+                "[Telegram] 'Working on it...' reply sent in chat=%s", chat_id)
         except Exception:
-            logger.exception("[Telegram] failed to send running reply in chat=%s", chat_id)
+            logger.exception(
+                "[Telegram] failed to send running reply in chat=%s", chat_id)
 
     # -- internal ----------------------------------------------------------
     @staticmethod
@@ -194,9 +240,11 @@ class TelegramChannel(Channel):
         try:
             exc = fut.exception()
             if exc:
-                logger.error("[Telegram] %s failed for msg_id=%s: %s", name, msg_id, exc)
+                logger.error(
+                    "[Telegram] %s failed for msg_id=%s: %s", name, msg_id, exc)
         except Exception:
-            logger.exception("[Telegram] Failed to inspect future for %s (msg_id=%s)", name, msg_id)
+            logger.exception(
+                "[Telegram] Failed to inspect future for %s (msg_id=%s)", name, msg_id)
 
     def _run_polling(self) -> None:
         """Run telegram polling in a dedicated thread."""
@@ -208,7 +256,8 @@ class TelegramChannel(Channel):
             # initialize the application and start the updater.
             self._tg_loop.run_until_complete(self._application.initialize())
             self._tg_loop.run_until_complete(self._application.start())
-            self._tg_loop.run_until_complete(self._application.updater.start_polling())
+            self._tg_loop.run_until_complete(
+                self._application.updater.start_polling())
             self._tg_loop.run_forever()
         except Exception:
             if self._running:
@@ -217,7 +266,8 @@ class TelegramChannel(Channel):
             # Graceful shutdown
             try:
                 if self._application.updater.running:
-                    self._tg_loop.run_until_complete(self._application.updater.stop())
+                    self._tg_loop.run_until_complete(
+                        self._application.updater.stop())
                 self._tg_loop.run_until_complete(self._application.stop())
                 self._tg_loop.run_until_complete(self._application.shutdown())
             except Exception:
@@ -269,10 +319,13 @@ class TelegramChannel(Channel):
         inbound.topic_id = topic_id
 
         if self._main_loop and self._main_loop.is_running():
-            fut = asyncio.run_coroutine_threadsafe(self._process_incoming_with_reply(chat_id, update.message.message_id, inbound), self._main_loop)
-            fut.add_done_callback(lambda f: self._log_future_error(f, "process_incoming_with_reply", update.message.message_id))
+            fut = asyncio.run_coroutine_threadsafe(self._process_incoming_with_reply(
+                chat_id, update.message.message_id, inbound), self._main_loop)
+            fut.add_done_callback(lambda f: self._log_future_error(
+                f, "process_incoming_with_reply", update.message.message_id))
         else:
-            logger.warning("[Telegram] Main loop not running. Cannot publish inbound message.")
+            logger.warning(
+                "[Telegram] Main loop not running. Cannot publish inbound message.")
 
     async def _on_text(self, update, context) -> None:
         """Handle regular text messages."""
@@ -311,7 +364,10 @@ class TelegramChannel(Channel):
         inbound.topic_id = topic_id
 
         if self._main_loop and self._main_loop.is_running():
-            fut = asyncio.run_coroutine_threadsafe(self._process_incoming_with_reply(chat_id, update.message.message_id, inbound), self._main_loop)
-            fut.add_done_callback(lambda f: self._log_future_error(f, "process_incoming_with_reply", update.message.message_id))
+            fut = asyncio.run_coroutine_threadsafe(self._process_incoming_with_reply(
+                chat_id, update.message.message_id, inbound), self._main_loop)
+            fut.add_done_callback(lambda f: self._log_future_error(
+                f, "process_incoming_with_reply", update.message.message_id))
         else:
-            logger.warning("[Telegram] Main loop not running. Cannot publish inbound message.")
+            logger.warning(
+                "[Telegram] Main loop not running. Cannot publish inbound message.")

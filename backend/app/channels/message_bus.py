@@ -1,4 +1,31 @@
-"""MessageBus — async pub/sub hub that decouples channels from the agent dispatcher."""
+"""MessageBus — 异步发布/订阅中心，解耦 IM 频道与 Agent 调度器。
+
+**核心概念**
+
+MessageBus 是整个频道系统的消息中枢。所有频道（Channel）和
+中央调度器（ChannelManager）都通过它进行通信，彼此之间不直接
+依赖。
+
+**数据流向**
+
+::
+
+    ┌──────────┐   publish_inbound()   ┌─────────────┐   get_inbound()   ┌────────────────┐
+    │ Channel  │ ─────────────────────→ │  MessageBus  │ ────────────────→ │ ChannelManager │
+    │ (飞书等)  │                        │              │                   │ (Agent调度器)   │
+    └──────────┘                        │              │                   └────────────────┘
+                                        │              │
+    ┌──────────┐   subscribe_outbound() │  ┌─────────┐ │   publish_outbound()
+    │ Channel  │ ←──────────────────────│  │  Queue   │ │ ←──────────────────
+    └──────────┘                        │  │+ Callback│ │
+                                        └─────────────┘
+
+**消息类型**
+
+- **InboundMessage**: 从 IM 平台进入的消息（CHAT 或 COMMAND）
+- **OutboundMessage**: Agent 回复的消息（文本 + 附件 + 文件路径）
+- **ResolvedAttachment**: 已解析到本地文件系统的附件元数据
+"""
 
 from __future__ import annotations
 
@@ -155,7 +182,8 @@ class MessageBus:
 
     def unsubscribe_outbound(self, callback: OutboundCallback) -> None:
         """Remove a previously registered outbound callback."""
-        self._outbound_listeners = [cb for cb in self._outbound_listeners if cb is not callback]
+        self._outbound_listeners = [
+            cb for cb in self._outbound_listeners if cb is not callback]
 
     async def publish_outbound(self, msg: OutboundMessage) -> None:
         """Dispatch an outbound message to all registered listeners."""
@@ -170,4 +198,5 @@ class MessageBus:
             try:
                 await callback(msg)
             except Exception:
-                logger.exception("Error in outbound callback for channel=%s", msg.channel_name)
+                logger.exception(
+                    "Error in outbound callback for channel=%s", msg.channel_name)

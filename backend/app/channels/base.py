@@ -1,4 +1,24 @@
-"""Abstract base class for IM channels."""
+"""IM 频道抽象基类。
+
+定义了所有 IM 频道实现必须遵循的接口规范。每个频道适配器继承
+此基类并实现平台特定的消息收发逻辑。
+
+**频道生命周期**
+
+::
+
+    1. 构造 (__init__)      — 注入 MessageBus 和配置
+    2. 启动 (start)          — 建立连接，订阅出站回调
+    3. 运行中                — 接收消息 → 发布入站；接收出站 → 发送回复
+    4. 停止 (stop)           — 断开连接，取消订阅
+
+**消息流向**
+
+::
+
+    入站:  IM 平台 → Channel._on_message_handler → bus.publish_inbound
+    出站:  bus.publish_outbound → Channel._on_outbound → Channel.send
+"""
 
 from __future__ import annotations
 
@@ -12,13 +32,25 @@ logger = logging.getLogger(__name__)
 
 
 class Channel(ABC):
-    """Base class for all IM channel implementations.
+    """所有 IM 频道实现的抽象基类。
 
-    Each channel connects to an external messaging platform and:
-    1. Receives messages, wraps them as InboundMessage, publishes to the bus.
-    2. Subscribes to outbound messages and sends replies back to the platform.
+    **子类必须实现的抽象方法**
 
-    Subclasses must implement ``start``, ``stop``, and ``send``.
+    - ``start()``: 启动频道，开始监听外部平台的消息
+    - ``stop()``: 优雅关闭频道
+    - ``send(msg)``: 向外部平台发送消息
+
+    **可选的覆盖方法**
+
+    - ``send_file(msg, attachment)``: 向外部平台上传文件（默认返回 False）
+    - ``receive_file(msg, thread_id)``: 下载并处理入站文件（默认透传）
+
+    **频道间通信**
+
+    所有频道通过共享的 MessageBus 实例进行通信：
+
+    - 入站：调用 ``_make_inbound()`` 构造消息 → ``bus.publish_inbound()`` 发布
+    - 出站：通过 ``_on_outbound()`` 回调接收消息 → 调用 ``send()`` 发送
     """
 
     def __init__(self, name: str, bus: MessageBus, config: dict[str, Any]) -> None:
@@ -100,16 +132,19 @@ class Channel(ABC):
             try:
                 await self.send(msg)
             except Exception:
-                logger.exception("Failed to send outbound message on channel %s", self.name)
+                logger.exception(
+                    "Failed to send outbound message on channel %s", self.name)
                 return  # Do not attempt file uploads when the text message failed
 
             for attachment in msg.attachments:
                 try:
                     success = await self.send_file(msg, attachment)
                     if not success:
-                        logger.warning("[%s] file upload skipped for %s", self.name, attachment.filename)
+                        logger.warning(
+                            "[%s] file upload skipped for %s", self.name, attachment.filename)
                 except Exception:
-                    logger.exception("[%s] failed to upload file %s", self.name, attachment.filename)
+                    logger.exception(
+                        "[%s] failed to upload file %s", self.name, attachment.filename)
 
     async def receive_file(self, msg: InboundMessage, thread_id: str) -> InboundMessage:
         """

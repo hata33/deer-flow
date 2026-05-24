@@ -1,4 +1,39 @@
-"""Slack channel — connects via Socket Mode (no public IP needed)."""
+"""Slack IM 频道实现。
+
+**连接方式**
+
+使用 Slack Socket Mode（WebSocket 长连接），无需公网 IP。
+SDK: ``slack-sdk``。
+
+**消息格式**
+
+AI 输出的 Markdown 通过 ``markdown_to_mrkdwn`` 库转换为 Slack
+的 mrkdwn 格式后发送。
+
+**表情反应**
+
+- 收到消息时: 添加 👀 (eyes) 反应表示已看到
+- 发送回复后: 添加 ✅ (white_check_mark) 反应表示成功
+- 发送失败时: 添加 ❌ (x) 反应表示失败
+
+**运行提示**
+
+收到消息后立即在 thread 中发送 ":hourglass_flowing_sand: Working on it..."
+提示用户正在处理。
+
+**文件上传**
+
+使用 Slack 的 ``files_upload_v2`` API 上传文件附件。
+
+**用户过滤**
+
+支持 ``allowed_users`` 配置项过滤允许交互的用户 ID。
+
+**路由规则**
+
+- topic_id = thread_ts（Slack 线程时间戳，用于关联同一线程的消息）
+- 非线程消息的 thread_ts = 消息自身的 ts
+"""
 
 from __future__ import annotations
 
@@ -48,7 +83,8 @@ class SlackChannel(Channel):
         self._socket_client = None
         self._web_client = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._allowed_users = _normalize_allowed_users(config.get("allowed_users", []))
+        self._allowed_users = _normalize_allowed_users(
+            config.get("allowed_users", []))
 
     async def start(self) -> None:
         if self._running:
@@ -59,7 +95,8 @@ class SlackChannel(Channel):
             from slack_sdk.socket_mode import SocketModeClient
             from slack_sdk.socket_mode.response import SocketModeResponse
         except ImportError:
-            logger.error("slack-sdk is not installed. Install it with: uv add slack-sdk")
+            logger.error(
+                "slack-sdk is not installed. Install it with: uv add slack-sdk")
             return
 
         self._SocketModeResponse = SocketModeResponse
@@ -78,7 +115,8 @@ class SlackChannel(Channel):
         )
         self._loop = asyncio.get_event_loop()
 
-        self._socket_client.socket_mode_request_listeners.append(self._on_socket_event)
+        self._socket_client.socket_mode_request_listeners.append(
+            self._on_socket_event)
 
         self._running = True
         self.bus.subscribe_outbound(self._on_outbound)
@@ -132,7 +170,8 @@ class SlackChannel(Channel):
                     )
                     await asyncio.sleep(delay)
 
-        logger.error("[Slack] send failed after %d attempts: %s", _max_retries, last_exc)
+        logger.error("[Slack] send failed after %d attempts: %s",
+                     _max_retries, last_exc)
         # Add failure reaction on error
         if msg.thread_ts:
             try:
@@ -145,7 +184,8 @@ class SlackChannel(Channel):
             except Exception:
                 pass
         if last_exc is None:
-            raise RuntimeError("Slack send failed without an exception from any attempt")
+            raise RuntimeError(
+                "Slack send failed without an exception from any attempt")
         raise last_exc
 
     async def send_file(self, msg: OutboundMessage, attachment: ResolvedAttachment) -> bool:
@@ -163,10 +203,12 @@ class SlackChannel(Channel):
                 kwargs["thread_ts"] = msg.thread_ts
 
             await asyncio.to_thread(self._web_client.files_upload_v2, **kwargs)
-            logger.info("[Slack] file uploaded: %s to channel=%s", attachment.filename, msg.chat_id)
+            logger.info("[Slack] file uploaded: %s to channel=%s",
+                        attachment.filename, msg.chat_id)
             return True
         except Exception:
-            logger.exception("[Slack] failed to upload file: %s", attachment.filename)
+            logger.exception(
+                "[Slack] failed to upload file: %s", attachment.filename)
             return False
 
     # -- internal ----------------------------------------------------------
@@ -183,7 +225,8 @@ class SlackChannel(Channel):
             )
         except Exception as exc:
             if "already_reacted" not in str(exc):
-                logger.warning("[Slack] failed to add reaction %s: %s", emoji, exc)
+                logger.warning(
+                    "[Slack] failed to add reaction %s: %s", emoji, exc)
 
     def _send_running_reply(self, channel_id: str, thread_ts: str) -> None:
         """Send a 'Working on it......' reply in the thread (called from SDK thread)."""
@@ -195,9 +238,11 @@ class SlackChannel(Channel):
                 text=":hourglass_flowing_sand: Working on it...",
                 thread_ts=thread_ts,
             )
-            logger.info("[Slack] 'Working on it...' reply sent in channel=%s, thread_ts=%s", channel_id, thread_ts)
+            logger.info(
+                "[Slack] 'Working on it...' reply sent in channel=%s, thread_ts=%s", channel_id, thread_ts)
         except Exception:
-            logger.exception("[Slack] failed to send running reply in channel=%s", channel_id)
+            logger.exception(
+                "[Slack] failed to send running reply in channel=%s", channel_id)
 
     def _on_socket_event(self, client, req) -> None:
         """Called by slack-sdk for each Socket Mode event."""
@@ -261,4 +306,5 @@ class SlackChannel(Channel):
             self._add_reaction(channel_id, event.get("ts", thread_ts), "eyes")
             # Send "running" reply first (fire-and-forget from SDK thread)
             self._send_running_reply(channel_id, thread_ts)
-            asyncio.run_coroutine_threadsafe(self.bus.publish_inbound(inbound), self._loop)
+            asyncio.run_coroutine_threadsafe(
+                self.bus.publish_inbound(inbound), self._loop)
