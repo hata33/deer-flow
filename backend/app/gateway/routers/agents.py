@@ -1,4 +1,23 @@
-"""CRUD API for custom agents."""
+"""自定义智能体（Agent）的 CRUD API 路由。
+
+本模块提供了一整套用于管理自定义智能体的 RESTful API，支持完整的
+创建、读取、更新、删除生命周期。智能体由两部分组成：
+
+1. config.yaml — 结构化配置文件，包含名称、描述、模型、工具组、技能白名单等
+2. SOUL.md — 自由格式的 Markdown 文件，定义智能体的人设、行为准则和对话风格
+
+此外，本模块还提供用户全局配置文件（USER.md）的读写接口，该文件会被
+注入到所有自定义智能体的上下文中，用于描述用户的背景和偏好。
+
+安全机制：
+- 所有接口受 agents_api.enabled 配置开关保护，默认关闭
+- 智能体名称仅允许字母、数字和连字符，防止路径遍历攻击
+- 文件系统操作按用户隔离，支持遗留共享布局的兼容检测
+- 更新操作区分"字段省略"与"显式设为 null"两种语义
+
+路由前缀：/api
+标签：agents
+"""
 
 import logging
 import re
@@ -16,11 +35,21 @@ from deerflow.runtime.user_context import get_effective_user_id
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agents"])
 
+# 智能体名称合法性正则：仅允许字母、数字和连字符，防止目录遍历等安全问题
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 
 
 class AgentResponse(BaseModel):
-    """Response model for a custom agent."""
+    """自定义智能体响应模型。
+
+    Attributes:
+        name: 智能体名称（连字符格式）。
+        description: 智能体描述信息。
+        model: 可选的模型覆盖配置。
+        tool_groups: 可选的工具组白名单。
+        skills: 可选的技能白名单（None 表示全部启用，空列表表示禁用所有）。
+        soul: SOUL.md 文件的原始内容。
+    """
 
     name: str = Field(..., description="Agent name (hyphen-case)")
     description: str = Field(default="", description="Agent description")
@@ -31,13 +60,22 @@ class AgentResponse(BaseModel):
 
 
 class AgentsListResponse(BaseModel):
-    """Response model for listing all custom agents."""
+    """自定义智能体列表响应模型。"""
 
     agents: list[AgentResponse]
 
 
 class AgentCreateRequest(BaseModel):
-    """Request body for creating a custom agent."""
+    """创建自定义智能体的请求体。
+
+    Attributes:
+        name: 智能体名称，必须匹配 ^[A-Za-z0-9-]+$ 模式，存储时自动转小写。
+        description: 智能体描述。
+        model: 可选的模型覆盖。
+        tool_groups: 可选的工具组白名单。
+        skills: 可选的技能白名单（None 表示全部启用，空列表表示无技能）。
+        soul: SOUL.md 内容，定义智能体的人设和行为守卫。
+    """
 
     name: str = Field(..., description="Agent name (must match ^[A-Za-z0-9-]+$, stored as lowercase)")
     description: str = Field(default="", description="Agent description")
@@ -48,7 +86,18 @@ class AgentCreateRequest(BaseModel):
 
 
 class AgentUpdateRequest(BaseModel):
-    """Request body for updating a custom agent."""
+    """更新自定义智能体的请求体。
+
+    所有字段均为可选；仅传入需要更新的字段。
+    使用 model_fields_set 区分"字段省略"与"显式设为 null"。
+
+    Attributes:
+        description: 更新后的描述。
+        model: 更新后的模型覆盖。
+        tool_groups: 更新后的工具组白名单。
+        skills: 更新后的技能白名单。
+        soul: 更新后的 SOUL.md 内容。
+    """
 
     description: str | None = Field(default=None, description="Updated description")
     model: str | None = Field(default=None, description="Updated model override")
@@ -58,13 +107,15 @@ class AgentUpdateRequest(BaseModel):
 
 
 def _validate_agent_name(name: str) -> None:
-    """Validate agent name against allowed pattern.
+    """验证智能体名称是否符合允许的模式。
+
+    仅允许字母、数字和连字符，防止路径遍历等安全风险。
 
     Args:
-        name: The agent name to validate.
+        name: 待验证的智能体名称。
 
     Raises:
-        HTTPException: 422 if the name is invalid.
+        HTTPException: 状态码 422，当名称不符合规范时抛出。
     """
     if not AGENT_NAME_PATTERN.match(name):
         raise HTTPException(
@@ -74,12 +125,23 @@ def _validate_agent_name(name: str) -> None:
 
 
 def _normalize_agent_name(name: str) -> str:
-    """Normalize agent name to lowercase for filesystem storage."""
+    """将智能体名称统一转为小写，用于文件系统存储。
+
+    Args:
+        name: 原始智能体名称。
+
+    Returns:
+        小写化后的名称字符串。
+    """
     return name.lower()
 
 
 def _require_agents_api_enabled() -> None:
-    """Reject access unless the custom-agent management API is explicitly enabled."""
+    """拒绝访问，除非自定义智能体管理 API 已显式启用。
+
+    Raises:
+        HTTPException: 状态码 403，当 API 未启用时抛出。
+    """
     if not get_agents_api_config().enabled:
         raise HTTPException(
             status_code=403,
@@ -88,7 +150,16 @@ def _require_agents_api_enabled() -> None:
 
 
 def _agent_config_to_response(agent_cfg: AgentConfig, include_soul: bool = False, *, user_id: str | None = None) -> AgentResponse:
-    """Convert AgentConfig to AgentResponse."""
+    """将内部 AgentConfig 对象转换为 API 响应模型。
+
+    Args:
+        agent_cfg: 内部智能体配置对象。
+        include_soul: 是否在响应中包含 SOUL.md 内容。
+        user_id: 用户标识，用于定位用户级别的 SOUL.md 文件。
+
+    Returns:
+        转换后的 AgentResponse 对象。
+    """
     soul: str | None = None
     if include_soul:
         soul = load_agent_soul(agent_cfg.name, user_id=user_id) or ""
@@ -110,10 +181,15 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_soul: bool = False
     description="List all custom agents available in the agents directory, including their soul content.",
 )
 async def list_agents() -> AgentsListResponse:
-    """List all custom agents.
+    """列出所有自定义智能体。
+
+    返回当前用户可见的所有自定义智能体，包括元数据和 SOUL.md 内容。
 
     Returns:
-        List of all custom agents with their metadata and soul content.
+        包含所有自定义智能体信息的列表响应。
+
+    Raises:
+        HTTPException: 状态码 500，当内部加载失败时抛出。
     """
     _require_agents_api_enabled()
 
@@ -132,25 +208,24 @@ async def list_agents() -> AgentsListResponse:
     description="Validate an agent name and check if it is available (case-insensitive).",
 )
 async def check_agent_name(name: str) -> dict:
-    """Check whether an agent name is valid and not yet taken.
+    """检查智能体名称是否合法且未被占用（大小写不敏感）。
 
     Args:
-        name: The agent name to check.
+        name: 待检查的智能体名称。
 
     Returns:
-        ``{"available": true/false, "name": "<normalized>"}``
+        包含 available（是否可用）和 name（标准化后的小写名称）的字典。
 
     Raises:
-        HTTPException: 422 if the name is invalid.
+        HTTPException: 状态码 422，当名称不符合规范时抛出。
     """
     _require_agents_api_enabled()
     _validate_agent_name(name)
     normalized = _normalize_agent_name(name)
     user_id = get_effective_user_id()
     paths = get_paths()
-    # Treat the name as taken if either the per-user path or the legacy shared
-    # path holds an agent — picking a name that collides with an unmigrated
-    # legacy agent would shadow the legacy entry once migration runs.
+    # 同时检查用户级目录和遗留共享目录：选择与未迁移的遗留智能体重名的名称
+    # 会在迁移执行后遮蔽遗留条目，因此提前阻止
     available = not paths.user_agent_dir(user_id, normalized).exists() and not paths.agent_dir(normalized).exists()
     return {"available": available, "name": normalized}
 
@@ -162,16 +237,16 @@ async def check_agent_name(name: str) -> dict:
     description="Retrieve details and SOUL.md content for a specific custom agent.",
 )
 async def get_agent(name: str) -> AgentResponse:
-    """Get a specific custom agent by name.
+    """根据名称获取指定自定义智能体的详细信息。
 
     Args:
-        name: The agent name.
+        name: 智能体名称。
 
     Returns:
-        Agent details including SOUL.md content.
+        包含智能体详细信息和 SOUL.md 内容的响应。
 
     Raises:
-        HTTPException: 404 if agent not found.
+        HTTPException: 状态码 404，当智能体不存在时抛出。
     """
     _require_agents_api_enabled()
     _validate_agent_name(name)
@@ -196,16 +271,19 @@ async def get_agent(name: str) -> AgentResponse:
     description="Create a new custom agent with its config and SOUL.md.",
 )
 async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
-    """Create a new custom agent.
+    """创建一个新的自定义智能体。
+
+    在文件系统上创建对应的目录结构，写入 config.yaml 和 SOUL.md 文件。
+    如果创建过程中发生错误，会自动清理已创建的目录。
 
     Args:
-        request: The agent creation request.
+        request: 智能体创建请求体。
 
     Returns:
-        The created agent details.
+        创建成功的智能体详细信息。
 
     Raises:
-        HTTPException: 409 if agent already exists, 422 if name is invalid.
+        HTTPException: 状态码 409（名称已存在）或 422（名称不合法）。
     """
     _require_agents_api_enabled()
     _validate_agent_name(request.name)
@@ -216,13 +294,14 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
     agent_dir = paths.user_agent_dir(user_id, normalized_name)
     legacy_dir = paths.agent_dir(normalized_name)
 
+    # 检查用户级目录和遗留共享目录是否已存在同名智能体
     if agent_dir.exists() or legacy_dir.exists():
         raise HTTPException(status_code=409, detail=f"Agent '{normalized_name}' already exists")
 
     try:
         agent_dir.mkdir(parents=True, exist_ok=True)
 
-        # Write config.yaml
+        # 构建 config.yaml 数据，仅写入非空字段
         config_data: dict = {"name": normalized_name}
         if request.description:
             config_data["description"] = request.description
@@ -237,7 +316,7 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
         with open(config_file, "w", encoding="utf-8") as f:
             yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
 
-        # Write SOUL.md
+        # 写入 SOUL.md 人设文件
         soul_file = agent_dir / "SOUL.md"
         soul_file.write_text(request.soul, encoding="utf-8")
 
@@ -249,7 +328,7 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
     except HTTPException:
         raise
     except Exception as e:
-        # Clean up on failure
+        # 创建失败时清理已生成的目录，避免残留脏数据
         if agent_dir.exists():
             shutil.rmtree(agent_dir)
         logger.error(f"Failed to create agent '{request.name}': {e}", exc_info=True)
@@ -263,17 +342,20 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
     description="Update an existing custom agent's config and/or SOUL.md.",
 )
 async def update_agent(name: str, request: AgentUpdateRequest) -> AgentResponse:
-    """Update an existing custom agent.
+    """更新已存在的自定义智能体。
+
+    支持部分更新：仅传入需要修改的字段即可。
+    对于遗留共享布局中的智能体，拒绝直接更新，需先执行迁移脚本。
 
     Args:
-        name: The agent name.
-        request: The update request (all fields optional).
+        name: 智能体名称。
+        request: 更新请求体，所有字段均为可选。
 
     Returns:
-        The updated agent details.
+        更新后的智能体详细信息。
 
     Raises:
-        HTTPException: 404 if agent not found.
+        HTTPException: 状态码 404（智能体不存在）或 409（遗留布局冲突）。
     """
     _require_agents_api_enabled()
     _validate_agent_name(name)
@@ -287,6 +369,7 @@ async def update_agent(name: str, request: AgentUpdateRequest) -> AgentResponse:
 
     paths = get_paths()
     agent_dir = paths.user_agent_dir(user_id, name)
+    # 遗留共享布局的智能体不支持直接更新，需要先迁移到用户级目录
     if not agent_dir.exists() and paths.agent_dir(name).exists():
         raise HTTPException(
             status_code=409,
@@ -294,9 +377,8 @@ async def update_agent(name: str, request: AgentUpdateRequest) -> AgentResponse:
         )
 
     try:
-        # Update config if any config fields changed
-        # Use model_fields_set to distinguish "field omitted" from "explicitly set to null".
-        # This is critical for skills where None means "inherit all" (not "don't change").
+        # 使用 model_fields_set 区分"字段省略"与"显式设为 null"。
+        # 这对于 skills 字段尤为关键：None 表示"继承所有技能"（而非"不修改"）。
         fields_set = request.model_fields_set
         config_changed = bool(fields_set & {"description", "model", "tool_groups", "skills"})
 
@@ -313,7 +395,7 @@ async def update_agent(name: str, request: AgentUpdateRequest) -> AgentResponse:
             if new_tool_groups is not None:
                 updated["tool_groups"] = new_tool_groups
 
-            # skills: None = inherit all, [] = no skills, ["a","b"] = whitelist
+            # skills 字段的三种语义：None=继承所有，[]=无技能，["a","b"]=白名单
             if "skills" in fields_set:
                 new_skills = request.skills
             else:
@@ -325,7 +407,7 @@ async def update_agent(name: str, request: AgentUpdateRequest) -> AgentResponse:
             with open(config_file, "w", encoding="utf-8") as f:
                 yaml.dump(updated, f, default_flow_style=False, allow_unicode=True)
 
-        # Update SOUL.md if provided
+        # 更新 SOUL.md（仅在显式提供时）
         if request.soul is not None:
             soul_path = agent_dir / "SOUL.md"
             soul_path.write_text(request.soul, encoding="utf-8")
@@ -343,13 +425,21 @@ async def update_agent(name: str, request: AgentUpdateRequest) -> AgentResponse:
 
 
 class UserProfileResponse(BaseModel):
-    """Response model for the global user profile (USER.md)."""
+    """用户全局配置文件（USER.md）的响应模型。
+
+    Attributes:
+        content: USER.md 文件内容，若尚未创建则为 None。
+    """
 
     content: str | None = Field(default=None, description="USER.md content, or null if not yet created")
 
 
 class UserProfileUpdateRequest(BaseModel):
-    """Request body for setting the global user profile."""
+    """更新用户全局配置文件的请求体。
+
+    Attributes:
+        content: USER.md 文件内容，描述用户背景和偏好。
+    """
 
     content: str = Field(default="", description="USER.md content — describes the user's background and preferences")
 
@@ -361,10 +451,15 @@ class UserProfileUpdateRequest(BaseModel):
     description="Read the global USER.md file that is injected into all custom agents.",
 )
 async def get_user_profile() -> UserProfileResponse:
-    """Return the current USER.md content.
+    """读取当前用户的 USER.md 内容。
+
+    USER.md 文件会被注入到所有自定义智能体的上下文中。
 
     Returns:
-        UserProfileResponse with content=None if USER.md does not exist yet.
+        UserProfileResponse，若 USER.md 不存在则 content 为 None。
+
+    Raises:
+        HTTPException: 状态码 500，当读取失败时抛出。
     """
     _require_agents_api_enabled()
 
@@ -386,13 +481,16 @@ async def get_user_profile() -> UserProfileResponse:
     description="Write the global USER.md file that is injected into all custom agents.",
 )
 async def update_user_profile(request: UserProfileUpdateRequest) -> UserProfileResponse:
-    """Create or overwrite the global USER.md.
+    """创建或覆盖全局 USER.md 文件。
 
     Args:
-        request: The update request with the new USER.md content.
+        request: 包含新 USER.md 内容的更新请求。
 
     Returns:
-        UserProfileResponse with the saved content.
+        UserProfileResponse，包含保存后的内容。
+
+    Raises:
+        HTTPException: 状态码 500，当写入失败时抛出。
     """
     _require_agents_api_enabled()
 
@@ -414,14 +512,16 @@ async def update_user_profile(request: UserProfileUpdateRequest) -> UserProfileR
     description="Delete a custom agent and all its files (config, SOUL.md, memory).",
 )
 async def delete_agent(name: str) -> None:
-    """Delete a custom agent.
+    """删除指定的自定义智能体。
+
+    删除智能体目录及其下的所有文件（config.yaml、SOUL.md、记忆数据等）。
+    对于遗留共享布局中的智能体，拒绝直接删除，需先执行迁移脚本。
 
     Args:
-        name: The agent name.
+        name: 智能体名称。
 
     Raises:
-        HTTPException: 404 if no per-user copy exists; 409 if only a legacy
-            shared copy exists (suggesting the migration script).
+        HTTPException: 状态码 404（智能体不存在）或 409（遗留布局冲突）。
     """
     _require_agents_api_enabled()
     _validate_agent_name(name)
@@ -431,6 +531,7 @@ async def delete_agent(name: str) -> None:
     agent_dir = paths.user_agent_dir(user_id, name)
 
     if not agent_dir.exists():
+        # 检查是否为遗留共享布局中的智能体
         if paths.agent_dir(name).exists():
             raise HTTPException(
                 status_code=409,

@@ -1,9 +1,36 @@
-"""Centralized accessors for singleton objects stored on ``app.state``.
+"""FastAPI 依赖注入中心 — app.state 单例获取器与运行时初始化。
 
-**Getters** (used by routers): raise 503 when a required dependency is
-missing, except ``get_store`` which returns ``None``.
+本模块是 Gateway 的依赖注入枢纽，负责两个核心职责：
 
-Initialization is handled directly in ``app.py`` via :class:`AsyncExitStack`.
+  1. **运行时初始化**（langgraph_runtime）：
+     通过 AsyncExitStack 管理 LangGraph 运行时的所有单例生命周期，
+     包括 StreamBridge、Checkpointer、Store、RunManager 等。
+     在 app.py 的 lifespan 中通过 ``async with langgraph_runtime(app): yield`` 调用。
+
+  2. **请求级依赖获取器**（get_*）：
+     从 app.state 读取运行时单例供路由使用。缺失时返回 503 Service Unavailable，
+     唯一例外是 get_store（返回 None）。
+
+核心设计：
+  - 使用 _require() 工厂函数批量创建类型安全的依赖获取器
+  - 认证相关单例（LocalAuthProvider、SQLiteUserRepository）通过模块级
+    缓存实现延迟初始化，避免循环导入
+  - RunContext 的构建聚合了多个基础设施依赖
+  - 用户身份解析从 Cookie → JWT → DB 查询 → Token 版本校验完整链路
+
+依赖获取器一览：
+  - get_stream_bridge     — SSE 事件桥接器
+  - get_run_manager       — 运行管理器
+  - get_checkpointer      — LangGraph 检查点存储
+  - get_run_event_store   — 运行事件存储
+  - get_feedback_repo     — 反馈仓库
+  - get_run_store         — 运行记录仓库
+  - get_store             — LangGraph Store（可能为 None）
+  - get_thread_store      — 线程元数据存储
+  - get_config            — 应用配置
+  - get_run_context       — 完整运行上下文
+  - get_local_provider    — 本地认证提供者
+  - get_current_user_from_request — 从请求中获取当前认证用户
 """
 
 from __future__ import annotations
@@ -31,7 +58,17 @@ T = TypeVar("T")
 
 
 def get_config(request: Request) -> AppConfig:
-    """Return the app-scoped ``AppConfig`` stored on ``app.state``."""
+    """返回存储在 app.state 上的应用级 AppConfig。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        AppConfig 实例。
+
+    Raises:
+        HTTPException 503: 配置不可用。
+    """
     config = getattr(request.app.state, "config", None)
     if config is None:
         raise HTTPException(status_code=503, detail="Configuration not available")
@@ -40,9 +77,18 @@ def get_config(request: Request) -> AppConfig:
 
 @asynccontextmanager
 async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Bootstrap and tear down all LangGraph runtime singletons.
+    """引导和清理所有 LangGraph 运行时单例。
 
-    Usage in ``app.py``::
+    在 AsyncExitStack 中依次初始化以下组件：
+      1. StreamBridge（SSE 事件桥接）
+      2. 持久化引擎（PostgreSQL/SQLite 连接池）
+      3. Checkpointer（LangGraph 检查点存储）
+      4. Store（LangGraph 键值存储）
+      5. 仓库实例（RunRepository、FeedbackRepository、ThreadStore）
+      6. RunEventStore（运行事件存储）
+      7. RunManager（运行生命周期管理）
+
+    用法（在 app.py 中）::
 
         async with langgraph_runtime(app):
             yield
@@ -59,14 +105,13 @@ async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
 
         app.state.stream_bridge = await stack.enter_async_context(make_stream_bridge(config))
 
-        # Initialize persistence engine BEFORE checkpointer so that
-        # auto-create-database logic runs first (postgres backend).
+        # 在 Checkpointer 之前初始化持久化引擎，确保自动建库逻辑先执行（PostgreSQL 后端）
         await init_engine_from_config(config.database)
 
         app.state.checkpointer = await stack.enter_async_context(make_checkpointer(config))
         app.state.store = await stack.enter_async_context(make_store(config))
 
-        # Initialize repositories — one get_session_factory() call for all.
+        # 初始化仓库 — 所有仓库共享同一个 session_factory
         sf = get_session_factory()
         if sf is not None:
             from deerflow.persistence.feedback import FeedbackRepository
@@ -75,6 +120,7 @@ async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
             app.state.run_store = RunRepository(sf)
             app.state.feedback_repo = FeedbackRepository(sf)
         else:
+            # 无持久化引擎时使用内存实现
             from deerflow.runtime.runs.store.memory import MemoryRunStore
 
             app.state.run_store = MemoryRunStore()
@@ -84,11 +130,11 @@ async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
 
         app.state.thread_store = make_thread_store(sf, app.state.store)
 
-        # Run event store (has its own factory with config-driven backend selection)
+        # 运行事件存储（有独立的工厂方法，根据配置选择后端）
         run_events_config = getattr(config, "run_events", None)
         app.state.run_event_store = make_run_event_store(run_events_config)
 
-        # RunManager with store backing for persistence
+        # RunManager 持有 RunStore 以支持持久化
         app.state.run_manager = RunManager(store=app.state.run_store)
 
         try:
@@ -98,12 +144,22 @@ async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 # ---------------------------------------------------------------------------
-# Getters – called by routers per-request
+# 获取器 — 路由模块按请求调用
 # ---------------------------------------------------------------------------
 
 
 def _require(attr: str, label: str) -> Callable[[Request], T]:
-    """Create a FastAPI dependency that returns ``app.state.<attr>`` or 503."""
+    """创建 FastAPI 依赖函数：返回 app.state.<attr> 或抛出 503。
+
+    工厂函数，为每个运行时单例生成类型安全的依赖获取器。
+
+    Args:
+        attr: app.state 上的属性名。
+        label: 503 错误消息中的可读名称。
+
+    Returns:
+        FastAPI 依赖函数。
+    """
 
     def dep(request: Request) -> T:
         val = getattr(request.app.state, attr, None)
@@ -115,6 +171,7 @@ def _require(attr: str, label: str) -> Callable[[Request], T]:
     return dep
 
 
+# 批量创建运行时单例的依赖获取器
 get_stream_bridge: Callable[[Request], StreamBridge] = _require("stream_bridge", "Stream bridge")
 get_run_manager: Callable[[Request], RunManager] = _require("run_manager", "Run manager")
 get_checkpointer: Callable[[Request], Checkpointer] = _require("checkpointer", "Checkpointer")
@@ -124,12 +181,31 @@ get_run_store: Callable[[Request], RunStore] = _require("run_store", "Run store"
 
 
 def get_store(request: Request):
-    """Return the global store (may be ``None`` if not configured)."""
+    """返回全局 Store（可能为 None，如果未配置）。
+
+    与其他获取器不同，Store 是可选组件。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        LangGraph Store 实例或 None。
+    """
     return getattr(request.app.state, "store", None)
 
 
 def get_thread_store(request: Request) -> ThreadMetaStore:
-    """Return the thread metadata store (SQL or memory-backed)."""
+    """返回线程元数据存储（SQL 或内存后端）。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        ThreadMetaStore 实例。
+
+    Raises:
+        HTTPException 503: 线程元数据存储不可用。
+    """
     val = getattr(request.app.state, "thread_store", None)
     if val is None:
         raise HTTPException(status_code=503, detail="Thread metadata store not available")
@@ -137,9 +213,15 @@ def get_thread_store(request: Request) -> ThreadMetaStore:
 
 
 def get_run_context(request: Request) -> RunContext:
-    """Build a :class:`RunContext` from ``app.state`` singletons.
+    """从 app.state 单例构建 RunContext。
 
-    Returns a *base* context with infrastructure dependencies.
+    返回包含基础设施依赖的*基础*上下文。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        聚合了 Checkpointer、Store、EventStore 等依赖的 RunContext。
     """
     config = get_config(request)
     return RunContext(
@@ -153,19 +235,25 @@ def get_run_context(request: Request) -> RunContext:
 
 
 # ---------------------------------------------------------------------------
-# Auth helpers (used by authz.py and auth middleware)
+# 认证辅助函数（供 authz.py 和 auth 中间件使用）
 # ---------------------------------------------------------------------------
 
-# Cached singletons to avoid repeated instantiation per request
+# 模块级缓存的单例实例，避免每个请求重复创建
 _cached_local_provider: LocalAuthProvider | None = None
 _cached_repo: SQLiteUserRepository | None = None
 
 
 def get_local_provider() -> LocalAuthProvider:
-    """Get or create the cached LocalAuthProvider singleton.
+    """获取或创建缓存的 LocalAuthProvider 单例。
 
-    Must be called after ``init_engine_from_config()`` — the shared
-    session factory is required to construct the user repository.
+    必须在 init_engine_from_config() 之后调用 — 构建用户仓库
+    需要共享的 session_factory。
+
+    Returns:
+        LocalAuthProvider 实例。
+
+    Raises:
+        RuntimeError: 持久化引擎未初始化时调用。
     """
     global _cached_local_provider, _cached_repo
     if _cached_repo is None:
@@ -184,9 +272,18 @@ def get_local_provider() -> LocalAuthProvider:
 
 
 async def get_current_user_from_request(request: Request):
-    """Get the current authenticated user from the request cookie.
+    """从请求 Cookie 中获取当前认证用户。
 
-    Raises HTTPException 401 if not authenticated.
+    完整的认证链路：Cookie → JWT 解码 → DB 用户查询 → Token 版本校验。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        认证通过的 User 对象。
+
+    Raises:
+        HTTPException 401: 未认证、Token 无效、用户不存在或 Token 已过期。
     """
     from app.gateway.auth import decode_token
     from app.gateway.auth.errors import AuthErrorCode, AuthErrorResponse, TokenError, token_error_to_code
@@ -213,7 +310,7 @@ async def get_current_user_from_request(request: Request):
             detail=AuthErrorResponse(code=AuthErrorCode.USER_NOT_FOUND, message="User not found").model_dump(),
         )
 
-    # Token version mismatch → password was changed, token is stale
+    # Token 版本不匹配 → 密码已修改，旧 Token 失效
     if user.token_version != payload.ver:
         raise HTTPException(
             status_code=401,
@@ -224,9 +321,15 @@ async def get_current_user_from_request(request: Request):
 
 
 async def get_optional_user_from_request(request: Request):
-    """Get optional authenticated user from request.
+    """从请求中获取可选的认证用户。
 
-    Returns None if not authenticated.
+    与 get_current_user_from_request 不同，未认证时返回 None 而非抛出异常。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        User 对象，或 None（未认证）。
     """
     try:
         return await get_current_user_from_request(request)
@@ -235,11 +338,17 @@ async def get_optional_user_from_request(request: Request):
 
 
 async def get_current_user(request: Request) -> str | None:
-    """Extract user_id from request cookie, or None if not authenticated.
+    """从请求 Cookie 中提取 user_id，未认证时返回 None。
 
-    Thin adapter that returns the string id for callers that only need
-    identification (e.g., ``feedback.py``). Full-user callers should use
-    ``get_current_user_from_request`` or ``get_optional_user_from_request``.
+    轻量级适配器，仅返回字符串 ID，适用于只需要身份标识的调用者
+    （如 feedback.py）。需要完整用户对象的调用者应使用
+    get_current_user_from_request 或 get_optional_user_from_request。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        用户 ID 字符串，或 None（未认证）。
     """
     user = await get_optional_user_from_request(request)
     return str(user.id) if user else None

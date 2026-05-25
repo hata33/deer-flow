@@ -1,3 +1,23 @@
+"""AI 生成产物（Artifact）的文件服务路由。
+
+本模块提供线程级别 AI 产物的 HTTP 文件服务，支持多种文件类型的
+安全访问策略。产物文件由 AI 智能体在运行过程中生成，存储在线程
+专属的虚拟路径空间中。
+
+安全防护策略：
+- HTML/XHTML/SVG 等"活跃内容"始终以附件方式下载，防止在同源上下文中
+  执行恶意脚本（XSS 防护）
+- 文本文件以纯文本方式响应，避免内容嗅探攻击
+- 路径解析经过虚拟路径映射，防止目录遍历
+
+额外功能：
+- 支持 .skill 归档文件（ZIP 格式）内部成员的提取与预览
+- 对归档内单个文件大小设置上限，防止资源耗尽攻击
+
+路由前缀：/api
+标签：artifacts
+"""
+
 import logging
 import mimetypes
 import zipfile
@@ -14,22 +34,44 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["artifacts"])
 
+# 需要强制下载的 MIME 类型集合——这些类型可能包含可执行脚本，
+# 在浏览器同源上下文中打开会造成 XSS 风险
 ACTIVE_CONTENT_MIME_TYPES = {
     "text/html",
     "application/xhtml+xml",
     "image/svg+xml",
 }
 
+# .skill 归档内单个成员文件的最大字节数（16 MB），防止 ZIP 炸弹攻击
 MAX_SKILL_ARCHIVE_MEMBER_BYTES = 16 * 1024 * 1024
 _SKILL_ARCHIVE_READ_CHUNK_SIZE = 64 * 1024
 
 
 def _build_content_disposition(disposition_type: str, filename: str) -> str:
-    """Build an RFC 5987 encoded Content-Disposition header value."""
+    """构建符合 RFC 5987 编码的 Content-Disposition 头值。
+
+    使用 UTF-8 编码的 filename* 参数，确保非 ASCII 文件名在浏览器中正确显示。
+
+    Args:
+        disposition_type: 处置类型（"attachment" 或 "inline"）。
+        filename: 文件名。
+
+    Returns:
+        符合 RFC 5987 规范的 Content-Disposition 头值字符串。
+    """
     return f"{disposition_type}; filename*=UTF-8''{quote(filename)}"
 
 
 def _build_attachment_headers(filename: str, extra_headers: dict[str, str] | None = None) -> dict[str, str]:
+    """构建附件下载的响应头集合。
+
+    Args:
+        filename: 下载时使用的文件名。
+        extra_headers: 额外需要合并的响应头。
+
+    Returns:
+        包含 Content-Disposition 和额外头的字典。
+    """
     headers = {"Content-Disposition": _build_content_disposition("attachment", filename)}
     if extra_headers:
         headers.update(extra_headers)
@@ -37,18 +79,43 @@ def _build_attachment_headers(filename: str, extra_headers: dict[str, str] | Non
 
 
 def is_text_file_by_content(path: Path, sample_size: int = 8192) -> bool:
-    """Check if file is text by examining content for null bytes."""
+    """通过检查文件内容中是否存在空字节来判断文件是否为文本文件。
+
+    文本文件不应包含空字节（\\x00），这是区分文本和二进制文件的
+    常用启发式方法。采样前 N 个字节进行判断以提高性能。
+
+    Args:
+        path: 文件路径。
+        sample_size: 采样字节数，默认 8192。
+
+    Returns:
+        True 如果文件内容看起来是文本，False 如果是二进制或读取失败。
+    """
     try:
         with open(path, "rb") as f:
             chunk = f.read(sample_size)
-            # Text files shouldn't contain null bytes
+            # 文本文件不应包含空字节
             return b"\x00" not in chunk
     except Exception:
         return False
 
 
 def _read_skill_archive_member(zip_ref: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
-    """Read a .skill archive member while enforcing an uncompressed size cap."""
+    """从 .skill 归档中读取单个成员文件，同时强制执行大小上限。
+
+    采用分块读取方式，在读取过程中实时检查累计大小，
+    防止恶意 ZIP 文件声明小尺寸但实际包含大量数据（ZIP 炸弹）。
+
+    Args:
+        zip_ref: 已打开的 ZipFile 对象。
+        info: ZipInfo 对象，描述目标成员。
+
+    Returns:
+        成员文件的完整字节内容。
+
+    Raises:
+        HTTPException: 状态码 413，当文件超过大小上限时抛出。
+    """
     if info.file_size > MAX_SKILL_ARCHIVE_MEMBER_BYTES:
         raise HTTPException(status_code=413, detail="Skill archive member is too large to preview")
 
@@ -64,33 +131,37 @@ def _read_skill_archive_member(zip_ref: zipfile.ZipFile, info: zipfile.ZipInfo) 
 
 
 def _extract_file_from_skill_archive(zip_path: Path, internal_path: str) -> bytes | None:
-    """Extract a file from a .skill ZIP archive.
+    """从 .skill ZIP 归档文件中提取指定内部路径的文件。
+
+    搜索策略：
+    1. 先尝试精确匹配内部路径
+    2. 再尝试忽略顶层目录前缀的匹配（如 "skill-name/SKILL.md"）
 
     Args:
-        zip_path: Path to the .skill file (ZIP archive).
-        internal_path: Path to the file inside the archive (e.g., "SKILL.md").
+        zip_path: .skill 文件的路径（ZIP 格式归档）。
+        internal_path: 归档内部文件路径（如 "SKILL.md"）。
 
     Returns:
-        The file content as bytes, or None if not found.
+        文件内容字节，若未找到则返回 None。
     """
     if not zipfile.is_zipfile(zip_path):
         return None
 
     try:
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            # List all files in the archive
+            # 建立文件名到 ZipInfo 的映射表
             infos_by_name = {info.filename: info for info in zip_ref.infolist()}
 
-            # Try direct path first
+            # 优先尝试精确路径匹配
             if internal_path in infos_by_name:
                 return _read_skill_archive_member(zip_ref, infos_by_name[internal_path])
 
-            # Try with any top-level directory prefix (e.g., "skill-name/SKILL.md")
+            # 尝试忽略顶层目录前缀（如 "skill-name/SKILL.md"）
             for name, info in infos_by_name.items():
                 if name.endswith("/" + internal_path) or name == internal_path:
                     return _read_skill_archive_member(zip_ref, info)
 
-            # Not found
+            # 未找到目标文件
             return None
     except (zipfile.BadZipFile, KeyError):
         return None
@@ -103,45 +174,37 @@ def _extract_file_from_skill_archive(zip_path: Path, internal_path: str) -> byte
 )
 @require_permission("threads", "read", owner_check=True)
 async def get_artifact(thread_id: str, path: str, request: Request, download: bool = False) -> Response:
-    """Get an artifact file by its path.
+    """根据路径获取 AI 生成产物文件。
 
-    The endpoint automatically detects file types and returns appropriate content types.
-    Use the `download` query parameter to force file download for non-active content.
+    本端点自动检测文件类型并返回适当的内容类型和响应方式：
+    - 活跃内容（HTML/XHTML/SVG）：始终以附件方式下载，防止 XSS 攻击
+    - 文本文件：以纯文本方式响应
+    - 二进制文件：内联展示，支持强制下载
+    - .skill 归档内文件：从 ZIP 中提取并响应
 
     Args:
-        thread_id: The thread ID.
-        path: The artifact path with virtual prefix (e.g., mnt/user-data/outputs/file.txt).
-        request: FastAPI request object (automatically injected).
+        thread_id: 线程 ID。
+        path: 产物虚拟路径（如 mnt/user-data/outputs/file.txt）。
+        request: FastAPI 请求对象（自动注入）。
+        download: 是否强制以附件方式下载。
 
     Returns:
-        The file content as a FileResponse with appropriate content type:
-        - Active content (HTML/XHTML/SVG): Served as download attachment
-        - Text files: Plain text with proper MIME type
-        - Binary files: Inline display with download option
+        适当类型的响应对象（FileResponse / PlainTextResponse / Response）。
 
     Raises:
         HTTPException:
-            - 400 if path is invalid or not a file
-            - 403 if access denied (path traversal detected)
-            - 404 if file not found
-
-    Query Parameters:
-        download (bool): If true, forces attachment download for file types that are
-            otherwise returned inline or as plain text. Active HTML/XHTML/SVG content
-            is always downloaded regardless of this flag.
-
-    Example:
-        - Get text file inline: `/api/threads/abc123/artifacts/mnt/user-data/outputs/notes.txt`
-        - Download file: `/api/threads/abc123/artifacts/mnt/user-data/outputs/data.csv?download=true`
-        - Active web content such as `.html`, `.xhtml`, and `.svg` artifacts is always downloaded
+            - 400: 路径无效或非文件
+            - 403: 访问被拒绝（路径遍历检测）
+            - 404: 文件不存在
+            - 413: 归档内文件过大
     """
-    # Check if this is a request for a file inside a .skill archive (e.g., xxx.skill/SKILL.md)
+    # 检测是否为 .skill 归档内部文件的请求（如 xxx.skill/SKILL.md）
     if ".skill/" in path:
-        # Split the path at ".skill/" to get the ZIP file path and internal path
+        # 在 ".skill/" 处分割路径，获取 ZIP 文件路径和内部路径
         skill_marker = ".skill/"
         marker_pos = path.find(skill_marker)
-        skill_file_path = path[: marker_pos + len(".skill")]  # e.g., "mnt/user-data/outputs/my-skill.skill"
-        internal_path = path[marker_pos + len(skill_marker) :]  # e.g., "SKILL.md"
+        skill_file_path = path[: marker_pos + len(".skill")]  # 如 "mnt/user-data/outputs/my-skill.skill"
+        internal_path = path[marker_pos + len(skill_marker) :]  # 如 "SKILL.md"
 
         actual_skill_path = resolve_thread_virtual_path(thread_id, skill_file_path)
 
@@ -151,14 +214,14 @@ async def get_artifact(thread_id: str, path: str, request: Request, download: bo
         if not actual_skill_path.is_file():
             raise HTTPException(status_code=400, detail=f"Path is not a file: {skill_file_path}")
 
-        # Extract the file from the .skill archive
+        # 从 .skill 归档中提取目标文件
         content = _extract_file_from_skill_archive(actual_skill_path, internal_path)
         if content is None:
             raise HTTPException(status_code=404, detail=f"File '{internal_path}' not found in skill archive")
 
-        # Determine MIME type based on the internal file
+        # 根据内部文件扩展名推断 MIME 类型
         mime_type, _ = mimetypes.guess_type(internal_path)
-        # Add cache headers to avoid repeated ZIP extraction (cache for 5 minutes)
+        # 添加缓存头以避免重复解压 ZIP（缓存 5 分钟）
         cache_headers = {"Cache-Control": "private, max-age=300"}
         download_name = Path(internal_path).name or actual_skill_path.stem
         if download or mime_type in ACTIVE_CONTENT_MIME_TYPES:
@@ -167,12 +230,13 @@ async def get_artifact(thread_id: str, path: str, request: Request, download: bo
         if mime_type and mime_type.startswith("text/"):
             return PlainTextResponse(content=content.decode("utf-8"), media_type=mime_type, headers=cache_headers)
 
-        # Default to plain text for unknown types that look like text
+        # 对未知类型但看起来像文本的内容，默认以纯文本返回
         try:
             return PlainTextResponse(content=content.decode("utf-8"), media_type="text/plain", headers=cache_headers)
         except UnicodeDecodeError:
             return Response(content=content, media_type=mime_type or "application/octet-stream", headers=cache_headers)
 
+    # 常规产物文件路径解析
     actual_path = resolve_thread_virtual_path(thread_id, path)
 
     logger.info(f"Resolving artifact path: thread_id={thread_id}, requested_path={path}, actual_path={actual_path}")
@@ -185,18 +249,21 @@ async def get_artifact(thread_id: str, path: str, request: Request, download: bo
 
     mime_type, _ = mimetypes.guess_type(actual_path)
 
+    # 用户显式请求下载
     if download:
         return FileResponse(path=actual_path, filename=actual_path.name, media_type=mime_type, headers=_build_attachment_headers(actual_path.name))
 
-    # Always force download for active content types to prevent script execution
-    # in the application origin when users open generated artifacts.
+    # 活跃内容类型始终强制下载，防止在应用同源上下文中执行脚本
     if mime_type in ACTIVE_CONTENT_MIME_TYPES:
         return FileResponse(path=actual_path, filename=actual_path.name, media_type=mime_type, headers=_build_attachment_headers(actual_path.name))
 
+    # 文本 MIME 类型以纯文本方式返回
     if mime_type and mime_type.startswith("text/"):
         return PlainTextResponse(content=actual_path.read_text(encoding="utf-8"), media_type=mime_type)
 
+    # 非 text/* MIME 但内容看起来是文本的文件
     if is_text_file_by_content(actual_path):
         return PlainTextResponse(content=actual_path.read_text(encoding="utf-8"), media_type=mime_type)
 
+    # 二进制文件以内联方式返回
     return Response(content=actual_path.read_bytes(), media_type=mime_type, headers={"Content-Disposition": _build_content_disposition("inline", actual_path.name)})
