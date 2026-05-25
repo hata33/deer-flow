@@ -1,29 +1,33 @@
-"""Middleware to inject dynamic context (memory, current date) as a system-reminder.
+"""动态上下文注入中间件 — 将记忆和当前日期作为 system-reminder 注入。
 
-The system prompt is kept fully static for maximum prefix-cache reuse across users
-and sessions.  The current date is always injected.  Per-user memory is also injected
-when ``memory.injection_enabled`` is True in the app config.  Both are delivered once
-per conversation as a dedicated <system-reminder> HumanMessage inserted before the
-first user message (frozen-snapshot pattern).
+系统提示词被设计为完全静态，以最大化跨用户、跨会话的前缀缓存（prefix-cache）复用。
+当前日期始终注入；当 memory.injection_enabled 为 True 时，每用户记忆也被注入。
+两者以专用的 <system-reminder> HumanMessage 形式注入到第一条用户消息之前（冻结快照模式）。
 
-When a conversation spans midnight the middleware detects the date change and injects
-a lightweight date-update reminder as a separate HumanMessage before the current turn.
-This correction is persisted so subsequent turns on the new day see a consistent history
-and do not re-inject.
-
-Reminder format:
-
+注入格式：
+  首轮注入（完整）：
     <system-reminder>
     <memory>...</memory>
-
     <current_date>2026-05-08, Friday</current_date>
     </system-reminder>
 
-Date-update format:
-
+  跨日注入（轻量）：
     <system-reminder>
     <current_date>2026-05-09, Saturday</current_date>
     </system-reminder>
+
+ID 交换技术：
+  _make_reminder_and_user_messages() 将原消息 ID 分配给 reminder_msg，
+  使 add_messages 替换原消息（保持位置），
+  原用户内容以 "{id}__user" 派生 ID 追加其后。
+
+跨日检测：
+  若对话跨越午夜，注入日期更新提醒作为当前（最后）HumanMessage 前的独立 HumanMessage，
+  持久化后后续轮次看到一致的日期历史，不再重复注入。
+
+检测方式：
+  使用 additional_kwargs.dynamic_context_reminder 标志（而非内容子串匹配），
+  防止用户消息中恰好包含 <system-reminder> 被误判为注入提醒。
 """
 
 from __future__ import annotations
@@ -68,7 +72,8 @@ def _last_injected_date(messages: list) -> str | None:
     """
     for msg in reversed(messages):
         if is_dynamic_context_reminder(msg):
-            content_str = msg.content if isinstance(msg.content, str) else str(msg.content)
+            content_str = msg.content if isinstance(
+                msg.content, str) else str(msg.content)
             return _extract_date(content_str)
     return None
 
@@ -106,7 +111,8 @@ class DynamicContextMiddleware(AgentMiddleware):
 
         # Memory injection is gated by injection_enabled; date is always included.
         injection_enabled = self._app_config.memory.injection_enabled if self._app_config else True
-        memory_context = _get_memory_context(self._agent_name, app_config=self._app_config) if injection_enabled else ""
+        memory_context = _get_memory_context(
+            self._agent_name, app_config=self._app_config) if injection_enabled else ""
         current_date = datetime.now().strftime("%Y-%m-%d, %A")
 
         lines: list[str] = ["<system-reminder>"]
@@ -143,7 +149,8 @@ class DynamicContextMiddleware(AgentMiddleware):
         reminder_msg = HumanMessage(
             content=reminder_content,
             id=stable_id,
-            additional_kwargs={"hide_from_ui": True, _DYNAMIC_CONTEXT_REMINDER_KEY: True},
+            additional_kwargs={"hide_from_ui": True,
+                               _DYNAMIC_CONTEXT_REMINDER_KEY: True},
         )
         user_msg = HumanMessage(
             content=original.content,
@@ -169,7 +176,8 @@ class DynamicContextMiddleware(AgentMiddleware):
 
         if last_date is None:
             # ── First turn: inject full reminder as a separate HumanMessage ─────
-            first_idx = next((i for i, m in enumerate(messages) if _is_user_injection_target(m)), None)
+            first_idx = next((i for i, m in enumerate(messages)
+                             if _is_user_injection_target(m)), None)
             if first_idx is None:
                 return None
             full_reminder = self._build_full_reminder()
@@ -179,7 +187,8 @@ class DynamicContextMiddleware(AgentMiddleware):
                 "<memory>" in full_reminder,
                 messages[first_idx].id,
             )
-            reminder_msg, user_msg = self._make_reminder_and_user_messages(messages[first_idx], full_reminder)
+            reminder_msg, user_msg = self._make_reminder_and_user_messages(
+                messages[first_idx], full_reminder)
             return {"messages": [reminder_msg, user_msg]}
 
         if last_date == current_date:
@@ -187,12 +196,15 @@ class DynamicContextMiddleware(AgentMiddleware):
             return None
 
         # ── Midnight crossed: inject date-update reminder as a separate HumanMessage ──
-        last_human_idx = next((i for i in reversed(range(len(messages))) if _is_user_injection_target(messages[i])), None)
+        last_human_idx = next((i for i in reversed(
+            range(len(messages))) if _is_user_injection_target(messages[i])), None)
         if last_human_idx is None:
             return None
 
-        reminder_msg, user_msg = self._make_reminder_and_user_messages(messages[last_human_idx], self._build_date_update_reminder())
-        logger.info("DynamicContextMiddleware: midnight crossing detected — injected date update before current turn")
+        reminder_msg, user_msg = self._make_reminder_and_user_messages(
+            messages[last_human_idx], self._build_date_update_reminder())
+        logger.info(
+            "DynamicContextMiddleware: midnight crossing detected — injected date update before current turn")
         return {"messages": [reminder_msg, user_msg]}
 
     @override

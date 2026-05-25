@@ -1,16 +1,24 @@
-"""Middleware to fix dangling tool calls in message history.
+"""悬挂工具调用修补中间件 — 在模型调用前检测并修补缺失的 ToolMessage。
 
-A dangling tool call occurs when an AIMessage contains tool_calls but there are
-no corresponding ToolMessages in the history (e.g., due to user interruption or
-request cancellation). This causes LLM errors due to incomplete message format.
+悬挂工具调用（dangling tool call）是指：
+  AIMessage 包含 tool_calls，但消息历史中没有对应的 ToolMessage
+  （例如用户中断或请求取消后，工具结果丢失）。
+  这会导致 LLM 因消息格式不完整而报错。
 
-This middleware intercepts the model call to detect and patch such gaps by
-inserting synthetic ToolMessages with an error indicator immediately after the
-AIMessage that made the tool calls, ensuring correct message ordering.
+修补策略：
+  扫描消息历史，为每个缺少 ToolMessage 的 tool_call 注入合成错误响应：
+  - 普通悬挂："[Tool call was interrupted and did not return a result.]"
+  - 无效工具调用："[Tool call could not be executed because its arguments were invalid: {error}]"
 
-Note: Uses wrap_model_call instead of before_model to ensure patches are inserted
-at the correct positions (immediately after each dangling AIMessage), not appended
-to the end of the message list as before_model + add_messages reducer would do.
+为什么用 wrap_model_call 而非 before_model：
+  wrap_model_call 可以精确控制修补消息的插入位置（紧跟在对应 AIMessage 之后），
+  before_model + add_messages reducer 只能追加到消息列表末尾，位置不正确。
+
+工具调用来源归一化：
+  _message_tool_calls() 同时检查三个来源：
+  1. msg.tool_calls（结构化字段，主要来源）
+  2. msg.additional_kwargs["tool_calls"]（原始提供者载荷，某些 provider 只走这个）
+  3. msg.invalid_tool_calls（格式错误的调用，仍需匹配 ToolMessage）
 """
 
 import json
@@ -50,7 +58,8 @@ class DanglingToolCallMiddleware(AgentMiddleware[AgentState]):
         tool_calls = getattr(msg, "tool_calls", None) or []
         normalized.extend(list(tool_calls))
 
-        raw_tool_calls = (getattr(msg, "additional_kwargs", None) or {}).get("tool_calls") or []
+        raw_tool_calls = (getattr(msg, "additional_kwargs",
+                          None) or {}).get("tool_calls") or []
         if not tool_calls:
             for raw_tc in raw_tool_calls:
                 if not isinstance(raw_tc, dict):
@@ -69,7 +78,8 @@ class DanglingToolCallMiddleware(AgentMiddleware[AgentState]):
                             parsed_args = json.loads(raw_args)
                         except (TypeError, ValueError, json.JSONDecodeError):
                             parsed_args = {}
-                        args = parsed_args if isinstance(parsed_args, dict) else {}
+                        args = parsed_args if isinstance(
+                            parsed_args, dict) else {}
 
                 normalized.append(
                     {
@@ -159,7 +169,8 @@ class DanglingToolCallMiddleware(AgentMiddleware[AgentState]):
             return None
 
         if patch_count:
-            logger.warning(f"Injecting {patch_count} placeholder ToolMessage(s) for dangling tool calls")
+            logger.warning(
+                f"Injecting {patch_count} placeholder ToolMessage(s) for dangling tool calls")
         return patched
 
     @override

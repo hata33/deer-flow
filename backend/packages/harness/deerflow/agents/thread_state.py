@@ -1,3 +1,32 @@
+"""LangGraph 状态模式定义。
+
+本模块定义了 Agent 运行时的状态结构 ThreadState，继承自 LangChain AgentState。
+状态中的每个字段对应 Agent 交互过程中的一个维度，
+LangGraph 通过 Annotated 类型注解实现字段级别的 reducer（合并策略）。
+
+状态字段一览：
+  ┌────────────────┬──────────────────────────────────────────────────────┐
+  │ 字段           │ 说明                                                │
+  ├────────────────┼──────────────────────────────────────────────────────┤
+  │ sandbox        │ 沙箱状态（sandbox_id），由 SandboxMiddleware 写入     │
+  │ thread_data    │ 线程数据路径（workspace/uploads/outputs）              │
+  │ title          │ 自动生成的对话标题                                    │
+  │ artifacts      │ 产出物路径列表（带去重 reducer）                       │
+  │ todos          │ 任务追踪列表，由 TodoMiddleware 管理                   │
+  │ uploaded_files │ 上传文件元信息列表                                    │
+  │ viewed_images  │ 已查看图像字典（路径 → {base64, mime_type}），带合并   │
+  └────────────────┴──────────────────────────────────────────────────────┘
+
+Reducer 设计：
+  - artifacts：merge_artifacts — 合并 + dict.fromkeys 去重 + 保持顺序
+  - viewed_images：merge_viewed_images — 合并字典，新值覆盖旧值；
+    特殊：空字典 {} 表示清除所有已查看图像（允许中间件处理后清空）
+
+依赖关系：
+  - 所有中间件通过 state_schema=ThreadState 与此状态交互
+  - LangGraph 的 add_messages reducer 自动处理 messages 字段
+"""
+
 from typing import Annotated, NotRequired, TypedDict
 
 from langchain.agents import AgentState
@@ -52,4 +81,5 @@ class ThreadState(AgentState):
     artifacts: Annotated[list[str], merge_artifacts]
     todos: NotRequired[list | None]
     uploaded_files: NotRequired[list[dict] | None]
-    viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]  # image_path -> {base64, mime_type}
+    # image_path -> {base64, mime_type}
+    viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]

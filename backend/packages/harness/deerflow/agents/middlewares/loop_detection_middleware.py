@@ -1,15 +1,33 @@
-"""Middleware to detect and break repetitive tool call loops.
+"""循环检测中间件 — 检测并打断重复的工具调用循环。
 
-P0 safety: prevents the agent from calling the same tool with the same
-arguments indefinitely until the recursion limit kills the run.
+P0 安全机制：防止 Agent 无限调用同一工具直到递归限制终止运行。
 
-Detection strategy:
-  1. After each model response, hash the tool calls (name + args).
-  2. Track recent hashes in a sliding window.
-  3. If the same hash appears >= warn_threshold times, inject a
-     "you are repeating yourself — wrap up" system message (once per hash).
-  4. If it appears >= hard_limit times, strip all tool_calls from the
-     response so the agent is forced to produce a final text answer.
+双层检测策略：
+1. 基于哈希的检测（hash-based）：
+   - 每次模型响应后，对工具调用集合（name + args）计算哈希
+   - 在滑动窗口（默认 20）中跟踪近期哈希
+   - 相同哈希出现 ≥ warn_threshold（默认 3）次：注入警告系统消息
+   - 相同哈希出现 ≥ hard_limit（默认 5）次：剥离所有 tool_calls，强制输出文本
+
+2. 基于频率的检测（frequency-based）：
+   - 追踪同一工具类型的调用次数（不限参数）
+   - 捕获哈希检测遗漏的跨文件读循环（如 read_file 40 个不同文件）
+   - 支持每工具频率阈值覆盖（tool_freq_overrides），如 bash 允许更高频率
+
+工具调用键规范化：
+  _stable_tool_key() 对不同工具采用不同策略：
+  - read_file：路径 + 行号分桶（200 行一桶），避免翻页触发误判
+  - write_file / str_replace：哈希完整参数（内容敏感，同一路径不同内容不应合并）
+  - 其他工具：只取显著字段（path/url/query/command/pattern/glob/cmd）
+
+线程安全：
+  - 每线程独立跟踪（_history: OrderedDict[thread_id → list[hash]]）
+  - LRU 淘汰：超过 max_tracked_threads（默认 100）时淘汰最久未用线程
+
+已知限制（v2.0-m1 WORKAROUND）：
+  警告消息被追加到 AIMessage.content 而非注入独立 HumanMessage，
+  因为在 after_model 时工具调用尚未执行，插入非工具消息会破坏
+  OpenAI/Moonshot 严格配对验证。正确修复见 RFC #2517。
 """
 
 from __future__ import annotations
@@ -37,7 +55,8 @@ _DEFAULT_HARD_LIMIT = 5  # force-stop after 5 identical calls
 _DEFAULT_WINDOW_SIZE = 20  # track last N tool calls
 _DEFAULT_MAX_TRACKED_THREADS = 100  # LRU eviction limit
 _DEFAULT_TOOL_FREQ_WARN = 30  # warn after 30 calls to the same tool type
-_DEFAULT_TOOL_FREQ_HARD_LIMIT = 50  # force-stop after 50 calls to the same tool type
+# force-stop after 50 calls to the same tool type
+_DEFAULT_TOOL_FREQ_HARD_LIMIT = 50
 
 
 def _normalize_tool_call_args(raw_args: object) -> tuple[dict, str | None]:
@@ -98,8 +117,10 @@ def _stable_tool_key(name: str, args: dict, fallback_key: str | None) -> str:
             return fallback_key
         return json.dumps(args, sort_keys=True, default=str)
 
-    salient_fields = ("path", "url", "query", "command", "pattern", "glob", "cmd")
-    stable_args = {field: args[field] for field in salient_fields if args.get(field) is not None}
+    salient_fields = ("path", "url", "query", "command",
+                      "pattern", "glob", "cmd")
+    stable_args = {field: args[field]
+                   for field in salient_fields if args.get(field) is not None}
     if stable_args:
         return json.dumps(stable_args, sort_keys=True, default=str)
 
@@ -189,11 +210,13 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         self.max_tracked_threads = max_tracked_threads
         self.tool_freq_warn = tool_freq_warn
         self.tool_freq_hard_limit = tool_freq_hard_limit
-        self._tool_freq_overrides: dict[str, tuple[int, int]] = tool_freq_overrides or {}
+        self._tool_freq_overrides: dict[str,
+                                        tuple[int, int]] = tool_freq_overrides or {}
         self._lock = threading.Lock()
         self._history: OrderedDict[str, list[str]] = OrderedDict()
         self._warned: dict[str, set[str]] = defaultdict(set)
-        self._tool_freq: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self._tool_freq: dict[str, dict[str, int]
+                              ] = defaultdict(lambda: defaultdict(int))
         self._tool_freq_warned: dict[str, set[str]] = defaultdict(set)
 
     @classmethod
@@ -206,12 +229,14 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             max_tracked_threads=config.max_tracked_threads,
             tool_freq_warn=config.tool_freq_warn,
             tool_freq_hard_limit=config.tool_freq_hard_limit,
-            tool_freq_overrides={name: (o.warn, o.hard_limit) for name, o in config.tool_freq_overrides.items()},
+            tool_freq_overrides={name: (o.warn, o.hard_limit)
+                                 for name, o in config.tool_freq_overrides.items()},
         )
 
     def _get_thread_id(self, runtime: Runtime) -> str:
         """Extract thread_id from runtime context for per-thread tracking."""
-        thread_id = runtime.context.get("thread_id") if runtime.context else None
+        thread_id = runtime.context.get(
+            "thread_id") if runtime.context else None
         if thread_id:
             return thread_id
         return "default"
@@ -226,7 +251,8 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             self._warned.pop(evicted_id, None)
             self._tool_freq.pop(evicted_id, None)
             self._tool_freq_warned.pop(evicted_id, None)
-            logger.debug("Evicted loop tracking for thread %s (LRU)", evicted_id)
+            logger.debug(
+                "Evicted loop tracking for thread %s (LRU)", evicted_id)
 
     def _track_and_check(self, state: AgentState, runtime: Runtime) -> tuple[str | None, bool]:
         """Track tool calls and check for loops.
@@ -266,7 +292,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             history = self._history[thread_id]
             history.append(call_hash)
             if len(history) > self.window_size:
-                history[:] = history[-self.window_size :]
+                history[:] = history[-self.window_size:]
 
             count = history.count(call_hash)
             tool_names = [tc.get("name", "?") for tc in tool_calls]
@@ -365,12 +391,14 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             "content": content,
         }
 
-        additional_kwargs = dict(getattr(last_msg, "additional_kwargs", {}) or {})
+        additional_kwargs = dict(
+            getattr(last_msg, "additional_kwargs", {}) or {})
         for key in ("tool_calls", "function_call"):
             additional_kwargs.pop(key, None)
         update["additional_kwargs"] = additional_kwargs
 
-        response_metadata = deepcopy(getattr(last_msg, "response_metadata", {}) or {})
+        response_metadata = deepcopy(
+            getattr(last_msg, "response_metadata", {}) or {})
         if response_metadata.get("finish_reason") == "tool_calls":
             response_metadata["finish_reason"] = "stop"
         update["response_metadata"] = response_metadata
@@ -384,8 +412,10 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             # Strip tool_calls from the last AIMessage to force text output
             messages = state.get("messages", [])
             last_msg = messages[-1]
-            content = self._append_text(last_msg.content, warning or _HARD_STOP_MSG)
-            stripped_msg = last_msg.model_copy(update=self._build_hard_stop_update(last_msg, content))
+            content = self._append_text(
+                last_msg.content, warning or _HARD_STOP_MSG)
+            stripped_msg = last_msg.model_copy(
+                update=self._build_hard_stop_update(last_msg, content))
             return {"messages": [stripped_msg]}
 
         if warning:
@@ -411,7 +441,8 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             # the prototype on `fix/loop-detection-tool-call-pairing`.
             messages = state.get("messages", [])
             last_msg = messages[-1]
-            patched_msg = last_msg.model_copy(update={"content": self._append_text(last_msg.content, warning)})
+            patched_msg = last_msg.model_copy(
+                update={"content": self._append_text(last_msg.content, warning)})
             return {"messages": [patched_msg]}
 
         return None

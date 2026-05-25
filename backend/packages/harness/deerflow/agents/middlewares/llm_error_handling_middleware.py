@@ -1,4 +1,29 @@
-"""LLM error handling middleware with retry/backoff and user-facing fallbacks."""
+"""LLM 错误处理中间件 — 瞬态错误重试、熔断器与用户友好降级。
+
+核心机制：
+1. 错误分类：将 LLM 异常分为四类
+   - transient：瞬态错误（超时、连接断开、5xx），可重试
+   - busy：服务繁忙（429、rate limit、负载过高），可重试
+   - quota：配额不足（billing/credit），不可重试
+   - auth：认证失败（API key 无效），不可重试
+   - generic：其他错误，不可重试
+
+2. 重试策略：仅 transient/busry 类型重试
+   - 最大重试次数：3（retry_max_attempts）
+   - 延迟策略：指数退避（1s → 2s → 4s，上限 8s）+ Retry-After 头部解析
+   - 中英文繁忙模式匹配："server busy" / "负载较高" / "服务繁忙" 等
+
+3. 熔断器（Circuit Breaker）：
+   - 状态机：Closed → Open → Half-Open → Closed
+   - 连续失败达到阈值（failure_threshold）后熔断
+   - 熔断后所有请求直接返回降级消息（fast fail）
+   - 恢复超时后进入 Half-Open，允许一次探测请求
+   - 探测成功则重置为 Closed，失败则回到 Open
+
+4. 用户友好降级：
+   - 熔断消息、配额不足消息、认证失败消息、重试耗尽消息
+   - 返回 AIMessage 而非异常，保持对话流不中断
+"""
 
 from __future__ import annotations
 
@@ -105,7 +130,8 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
     def _record_success(self) -> None:
         with self._circuit_lock:
             if self._circuit_state != "closed" or self._circuit_failure_count > 0:
-                logger.info("Circuit breaker reset (Closed). LLM service recovered.")
+                logger.info(
+                    "Circuit breaker reset (Closed). LLM service recovered.")
             self._circuit_failure_count = 0
             self._circuit_open_until = 0.0
             self._circuit_state = "closed"

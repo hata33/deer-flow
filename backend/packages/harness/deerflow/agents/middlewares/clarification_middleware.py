@@ -1,4 +1,31 @@
-"""Middleware for intercepting clarification requests and presenting them to the user."""
+"""澄清请求拦截中间件 — 拦截 ask_clarification 工具调用并中断执行。
+
+当模型调用 ask_clarification 工具时，此中间件：
+1. 拦截工具调用，阻止其执行
+2. 提取澄清问题及元数据（类型、上下文、选项）
+3. 格式化为用户友好的消息（带类型图标）
+4. 返回 Command 中断执行，向用户展示问题
+5. 等待用户回复后继续执行
+
+设计理由：
+  澄清是 Agent 与用户的交互行为，不应作为普通工具调用执行。
+  拦截后直接中断图执行（goto=END），用户回复时 LangGraph 自动恢复。
+
+消息格式化：
+  - 缺失信息（missing_info）：❓
+  - 需求模糊（ambiguous_requirement）：🤔
+  - 方案选择（approach_choice）：🔀
+  - 风险确认（risk_confirmation）：⚠️
+  - 建议（suggestion）：💡
+
+消息 ID 稳定性：
+  使用 _stable_message_id() 生成确定性 ID，
+  确保重试的澄清调用替换而非追加消息。
+
+兼容性：
+  - 某些模型（如 Qwen3-Max）将数组参数序列化为 JSON 字符串，
+    _format_clarification_message() 中做了反序列化处理
+"""
 
 import json
 import logging
