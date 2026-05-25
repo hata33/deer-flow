@@ -1,4 +1,24 @@
-"""General-purpose subagent configuration."""
+"""通用多步骤任务子代理配置。
+
+本模块定义了 general-purpose 子代理，这是 DeerFlow 的默认子代理。
+它拥有除 task 外的全部工具，适用于需要探索和行动的复杂多步骤任务。
+
+设计哲学:
+    - 继承父代理的全部工具（tools=None），获得最大灵活性
+    - 禁止 task（防止代理嵌套）、ask_clarification（自主执行不提问）、present_files
+    - 较高的 max_turns（100）支持复杂多步骤推理
+    - 继承父代理模型（model="inherit"）
+    - 系统提示词强调自主完成任务并返回清晰结果
+
+适用场景:
+    - 需要同时进行探索和修改的任务
+    - 需要复杂推理来解释结果
+    - 多个相互依赖的步骤
+    - 受益于隔离上下文管理的任务
+
+不适用场景:
+    - 简单的单步操作（应直接在主代理中完成）
+"""
 
 from deerflow.subagents.config import SubagentConfig
 
@@ -43,8 +63,8 @@ You have access to the same sandbox environment as the parent agent:
 - Prefer relative paths from the workspace, such as `hello.txt`, `../uploads/input.csv`, and `../outputs/result.md`, when writing scripts or shell commands
 </working_directory>
 """,
-    tools=None,  # Inherit all tools from parent
-    disallowed_tools=["task", "ask_clarification", "present_files"],  # Prevent nesting and clarification
-    model="inherit",
-    max_turns=100,
+    tools=None,  # 继承父代理的全部工具
+    disallowed_tools=["task", "ask_clarification", "present_files"],  # 防止嵌套和澄清
+    model="inherit",  # 继承父代理模型
+    max_turns=100,  # 支持复杂多步骤推理
 )

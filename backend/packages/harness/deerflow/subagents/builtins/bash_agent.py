@@ -1,4 +1,23 @@
-"""Bash command execution subagent configuration."""
+"""Bash 命令执行子代理配置。
+
+本模块定义了专门用于命令行操作的 bash 子代理。该代理专注于在沙箱环境中
+执行一系列相关的 bash 命令，适用于构建、测试、部署、Git 操作等场景。
+
+设计哲学:
+    - 仅使用沙箱文件操作工具（bash, ls, read_file, write_file, str_replace）
+    - 禁止 task（防止嵌套）、ask_clarification（自主执行）、present_files（非展示型）
+    - 较高的 max_turns（60）支持多步骤命令序列
+    - 继承父代理模型（model="inherit"）
+
+适用场景:
+    - 需要执行一系列相关 bash 命令
+    - 终端操作如 git、npm、docker 等
+    - 命令输出冗长，会污染主代理上下文时
+    - 构建、测试或部署操作
+
+不适用场景:
+    - 简单单条命令（应直接使用 bash 工具）
+"""
 
 from deerflow.subagents.config import SubagentConfig
 
@@ -43,8 +62,8 @@ You have access to the sandbox environment:
 - Prefer relative paths from the workspace, such as `hello.txt`, `../uploads/input.csv`, and `../outputs/result.md`, when composing commands or helper scripts
 </working_directory>
 """,
-    tools=["bash", "ls", "read_file", "write_file", "str_replace"],  # Sandbox tools only
-    disallowed_tools=["task", "ask_clarification", "present_files"],
-    model="inherit",
-    max_turns=60,
+    tools=["bash", "ls", "read_file", "write_file", "str_replace"],  # 仅沙箱工具
+    disallowed_tools=["task", "ask_clarification", "present_files"],  # 禁止嵌套、澄清和文件展示
+    model="inherit",  # 继承父代理模型
+    max_turns=60,  # 支持多步骤命令序列
 )

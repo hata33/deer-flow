@@ -1,10 +1,26 @@
-"""Configuration and loaders for custom agents.
+"""自定义代理配置 — 用户定义的代理类型。
 
-Custom agents are stored per-user under ``{base_dir}/users/{user_id}/agents/{name}/``.
-A legacy shared layout at ``{base_dir}/agents/{name}/`` is still readable so that
-installations that pre-date user isolation continue to work until they run the
-``scripts/migrate_user_isolation.py`` migration. New writes always target the
-per-user layout.
+自定义代理是用户创建的专门化代理，拥有独立的：
+- SOUL.md: 代理的个性和行为指导
+- config.yaml: 代理的配置（模型、工具、技能白名单）
+
+### 用户隔离
+代理按用户隔离存储：
+- 新布局（推荐）: {base_dir}/users/{user_id}/agents/{name}/
+- 旧布局（只读兼容）: {base_dir}/agents/{name}/
+
+新写入始终使用新布局。旧布局仅作为读取回退，
+直到用户运行 migrate_user_isolation.py 迁移脚本。
+
+### 名称验证
+代理名只允许字母、数字和连字符，防止路径遍历攻击。
+
+### 配置字段
+- name: 代理名称（从目录名推断，如果 config.yaml 中未指定）
+- description: 代理描述
+- model: 使用的模型（None = 继承主代理的模型）
+- tool_groups: 工具分组白名单
+- skills: 技能白名单（None=全部启用, []=全部禁用）
 """
 
 import logging
@@ -21,11 +37,15 @@ from deerflow.runtime.user_context import get_effective_user_id
 logger = logging.getLogger(__name__)
 
 SOUL_FILENAME = "SOUL.md"
+# 代理名只允许字母、数字和连字符，防止路径遍历
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 
 
 def validate_agent_name(name: str | None) -> str | None:
-    """Validate a custom agent name before using it in filesystem paths."""
+    """验证代理名称是否安全（只包含字母、数字、连字符）。
+
+    在用于文件系统路径之前调用，防止路径遍历攻击。
+    """
     if name is None:
         return None
     if not isinstance(name, str):
@@ -36,33 +56,37 @@ def validate_agent_name(name: str | None) -> str | None:
 
 
 class AgentConfig(BaseModel):
-    """Configuration for a custom agent."""
+    """自定义代理配置模型。
+
+    - name: 代理唯一名称
+    - description: 代理描述
+    - model: 使用的模型名称（None = 继承主代理模型）
+    - tool_groups: 允许的工具分组列表
+    - skills: 技能白名单
+      - None（或省略）: 加载所有启用的技能（默认行为）
+      - []（显式空列表）: 禁用所有技能
+      - ["skill1", "skill2"]: 只加载指定技能
+    """
 
     name: str
     description: str = ""
     model: str | None = None
     tool_groups: list[str] | None = None
-    # skills controls which skills are loaded into the agent's prompt:
-    # - None (or omitted): load all enabled skills (default fallback behavior)
-    # - [] (explicit empty list): disable all skills
-    # - ["skill1", "skill2"]: load only the specified skills
     skills: list[str] | None = None
 
 
 def resolve_agent_dir(name: str, *, user_id: str | None = None) -> Path:
-    """Return the on-disk directory for an agent, preferring the per-user layout.
+    """解析代理的磁盘目录，优先使用按用户隔离的布局。
 
-    Resolution order:
-    1. ``{base_dir}/users/{user_id}/agents/{name}/`` (per-user, current layout).
-    2. ``{base_dir}/agents/{name}/`` (legacy shared layout — read-only fallback).
+    解析顺序：
+    1. {base_dir}/users/{user_id}/agents/{name}/（按用户隔离，当前布局）
+    2. {base_dir}/agents/{name}/（旧布局，只读回退）
 
-    If neither exists, the per-user path is returned so callers that intend to
-    create the agent write into the new layout.
+    如果两者都不存在，返回按用户隔离的路径（供新建代理使用）。
 
     Args:
-        name: Validated agent name.
-        user_id: Owner of the agent. Defaults to the effective user from the
-            request context (or ``"default"`` in no-auth mode).
+        name: 已验证的代理名称。
+        user_id: 代理所有者。默认为请求上下文中的有效用户。
     """
     paths = get_paths()
     effective_user = user_id or get_effective_user_id()
@@ -70,32 +94,25 @@ def resolve_agent_dir(name: str, *, user_id: str | None = None) -> Path:
     if user_path.exists():
         return user_path
 
+    # 回退到旧布局（兼容未迁移的安装）
     legacy_path = paths.agent_dir(name)
     if legacy_path.exists():
         return legacy_path
 
+    # 都不存在时返回新布局路径（用于创建新代理）
     return user_path
 
 
 def load_agent_config(name: str | None, *, user_id: str | None = None) -> AgentConfig | None:
-    """Load the custom or default agent's config from its directory.
+    """从磁盘加载自定义代理的配置。
 
-    Reads from the per-user layout first; falls back to the legacy shared layout
-    for installations that have not yet been migrated.
-
-    Args:
-        name: The agent name.
-        user_id: Owner of the agent. Defaults to the effective user from the
-            current request context.
-
-    Returns:
-        AgentConfig instance, or ``None`` if ``name`` is ``None``.
+    先查找按用户隔离的布局，回退到旧布局。
+    config.yaml 中缺失的字段用默认值填充。
 
     Raises:
-        FileNotFoundError: If the agent directory or config.yaml does not exist.
-        ValueError: If config.yaml cannot be parsed.
+        FileNotFoundError: 代理目录或 config.yaml 不存在
+        ValueError: config.yaml 解析失败
     """
-
     if name is None:
         return None
 
@@ -115,11 +132,11 @@ def load_agent_config(name: str | None, *, user_id: str | None = None) -> AgentC
     except yaml.YAMLError as e:
         raise ValueError(f"Failed to parse agent config {config_file}: {e}") from e
 
-    # Ensure name is set from directory name if not in file
+    # 如果 config.yaml 中没有 name 字段，用目录名填充
     if "name" not in data:
         data["name"] = name
 
-    # Strip unknown fields before passing to Pydantic (e.g. legacy prompt_file)
+    # 过滤掉 Pydantic 模型不认识的字段（如旧版的 prompt_file）
     known_fields = set(AgentConfig.model_fields.keys())
     data = {k: v for k, v in data.items() if k in known_fields}
 
@@ -127,22 +144,18 @@ def load_agent_config(name: str | None, *, user_id: str | None = None) -> AgentC
 
 
 def load_agent_soul(agent_name: str | None, *, user_id: str | None = None) -> str | None:
-    """Read the SOUL.md file for a custom agent, if it exists.
+    """读取代理的 SOUL.md 文件。
 
-    SOUL.md defines the agent's personality, values, and behavioral guardrails.
-    It is injected into the lead agent's system prompt as additional context.
-
-    Args:
-        agent_name: The name of the agent or None for the default agent.
-        user_id: Owner of the agent. Defaults to the effective user from the
-            current request context.
+    SOUL.md 定义代理的个性、价值观和行为边界。
+    它被注入到主代理的系统提示词中作为额外上下文。
 
     Returns:
-        The SOUL.md content as a string, or None if the file does not exist.
+        SOUL.md 内容字符串，或 None（文件不存在或为空）。
     """
     if agent_name:
         agent_dir = resolve_agent_dir(agent_name, user_id=user_id)
     else:
+        # 无代理名时使用基础目录（可能存在全局 SOUL.md）
         agent_dir = get_paths().base_dir
     soul_path = agent_dir / SOUL_FILENAME
     if not soul_path.exists():
@@ -152,18 +165,13 @@ def load_agent_soul(agent_name: str | None, *, user_id: str | None = None) -> st
 
 
 def list_custom_agents(*, user_id: str | None = None) -> list[AgentConfig]:
-    """Scan the agents directory and return all valid custom agents.
+    """扫描并返回所有有效的自定义代理。
 
-    Returns the union of agents in the per-user layout and the legacy shared
-    layout, so that pre-migration installations remain visible until they are
-    migrated. Per-user entries shadow legacy entries with the same name.
-
-    Args:
-        user_id: Owner whose agents to list. Defaults to the effective user
-            from the current request context.
+    合并按用户隔离布局和旧布局中的代理，
+    按用户布局的代理会覆盖旧布局中的同名代理。
 
     Returns:
-        List of AgentConfig for each valid agent directory found.
+        按名称排序的 AgentConfig 列表。
     """
     paths = get_paths()
     effective_user = user_id or get_effective_user_id()

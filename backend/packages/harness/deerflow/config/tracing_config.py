@@ -1,3 +1,29 @@
+"""追踪配置 — LangSmith 和 Langfuse 可观测性。
+
+追踪系统将 Agent 的执行过程（工具调用、LLM 交互、中间结果）发送到
+可观测性平台，用于调试、性能分析和质量监控。
+
+### 支持的 Provider
+1. **LangSmith**: LangChain 生态的可观测性平台
+2. **Langfuse**: 开源的 LLM 可观测性平台
+
+### 配置来源
+所有配置从环境变量读取（不从 config.yaml）：
+- LangSmith: LANGSMITH_TRACING / LANGCHAIN_TRACING_V2, LANGSMITH_API_KEY / LANGCHAIN_API_KEY
+- Langfuse: LANGFUSE_TRACING, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+
+### 为什么用环境变量而非 config.yaml
+- 追踪是运维关注点，不应混入应用配置
+- 环境变量在 CI/CD 和容器编排中更易管理
+- LangSmith/Langfuse 的 SDK 本身就读环境变量
+
+### 双重检查
+- enabled: 用户显式启用了追踪（即使配置不完整）
+- is_configured: enabled 且凭证完整，可以实际工作
+只检查 is_configured 时可能会遗漏配置不完整的情况，
+所以 validate_enabled 专门验证"启用了但缺少凭证"的场景。
+"""
+
 import os
 import threading
 
@@ -7,7 +33,14 @@ _config_lock = threading.Lock()
 
 
 class LangSmithTracingConfig(BaseModel):
-    """Configuration for LangSmith tracing."""
+    """LangSmith 追踪配置。
+
+    环境变量映射（优先使用 LANGSMITH_* 变量，回退到 LANGCHAIN_* 变量）：
+    - LANGSMITH_TRACING / LANGCHAIN_TRACING_V2 / LANGCHAIN_TRACING: 是否启用
+    - LANGSMITH_API_KEY / LANGCHAIN_API_KEY: API 密钥
+    - LANGSMITH_PROJECT / LANGCHAIN_PROJECT: 项目名
+    - LANGSMITH_ENDPOINT / LANGCHAIN_ENDPOINT: API 端点
+    """
 
     enabled: bool = Field(...)
     api_key: str | None = Field(...)
@@ -16,15 +49,24 @@ class LangSmithTracingConfig(BaseModel):
 
     @property
     def is_configured(self) -> bool:
+        """enabled 且有 API 密钥 → 可以实际工作。"""
         return self.enabled and bool(self.api_key)
 
     def validate(self) -> None:
+        """验证启用了追踪但缺少 API 密钥时抛出错误。"""
         if self.enabled and not self.api_key:
             raise ValueError("LangSmith tracing is enabled but LANGSMITH_API_KEY (or LANGCHAIN_API_KEY) is not set.")
 
 
 class LangfuseTracingConfig(BaseModel):
-    """Configuration for Langfuse tracing."""
+    """Langfuse 追踪配置。
+
+    环境变量映射：
+    - LANGFUSE_TRACING: 是否启用
+    - LANGFUSE_PUBLIC_KEY: 公钥
+    - LANGFUSE_SECRET_KEY: 密钥
+    - LANGFUSE_BASE_URL: 自定义 URL（默认 https://cloud.langfuse.com）
+    """
 
     enabled: bool = Field(...)
     public_key: str | None = Field(...)
@@ -33,9 +75,11 @@ class LangfuseTracingConfig(BaseModel):
 
     @property
     def is_configured(self) -> bool:
+        """enabled 且有公钥和密钥 → 可以实际工作。"""
         return self.enabled and bool(self.public_key) and bool(self.secret_key)
 
     def validate(self) -> None:
+        """验证启用了追踪但缺少凭证时抛出错误。"""
         if not self.enabled:
             return
         missing: list[str] = []
@@ -48,17 +92,25 @@ class LangfuseTracingConfig(BaseModel):
 
 
 class TracingConfig(BaseModel):
-    """Tracing configuration for supported providers."""
+    """追踪系统总配置。
+
+    聚合 LangSmith 和 Langfuse 两个 Provider 的配置。
+    """
 
     langsmith: LangSmithTracingConfig = Field(...)
     langfuse: LangfuseTracingConfig = Field(...)
 
     @property
     def is_configured(self) -> bool:
+        """至少有一个 Provider 配置完整且启用。"""
         return bool(self.enabled_providers)
 
     @property
     def explicitly_enabled_providers(self) -> list[str]:
+        """用户显式启用了的 Provider（即使配置不完整）。
+
+        用于验证场景：发现"启用了但配不全"的情况。
+        """
         enabled: list[str] = []
         if self.langsmith.enabled:
             enabled.append("langsmith")
@@ -68,6 +120,7 @@ class TracingConfig(BaseModel):
 
     @property
     def enabled_providers(self) -> list[str]:
+        """配置完整且启用的 Provider（可以实际工作的）。"""
         enabled: list[str] = []
         if self.langsmith.is_configured:
             enabled.append("langsmith")
@@ -76,18 +129,20 @@ class TracingConfig(BaseModel):
         return enabled
 
     def validate_enabled(self) -> None:
+        """验证所有显式启用的 Provider 配置完整。"""
         self.langsmith.validate()
         self.langfuse.validate()
 
 
+# 全局单例 — 使用 double-check locking 懒加载
 _tracing_config: TracingConfig | None = None
 
-
+# 环境变量布尔值的"真"值集合
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
 
 def _env_flag_preferred(*names: str) -> bool:
-    """Return the boolean value of the first env var that is present and non-empty."""
+    """读取第一个存在且非空的环境变量，解析为布尔值。"""
     for name in names:
         value = os.environ.get(name)
         if value is not None and value.strip():
@@ -96,7 +151,7 @@ def _env_flag_preferred(*names: str) -> bool:
 
 
 def _first_env_value(*names: str) -> str | None:
-    """Return the first non-empty environment value from candidate names."""
+    """读取第一个非空的环境变量值。"""
     for name in names:
         value = os.environ.get(name)
         if value and value.strip():
@@ -105,7 +160,11 @@ def _first_env_value(*names: str) -> str | None:
 
 
 def get_tracing_config() -> TracingConfig:
-    """Get the current tracing configuration from environment variables."""
+    """获取当前追踪配置（全局单例，懒加载）。
+
+    使用 double-check locking 确保线程安全且只初始化一次。
+    所有配置从环境变量读取。
+    """
     global _tracing_config
     if _tracing_config is not None:
         return _tracing_config
@@ -130,20 +189,20 @@ def get_tracing_config() -> TracingConfig:
 
 
 def get_enabled_tracing_providers() -> list[str]:
-    """Return the configured tracing providers that are enabled and complete."""
+    """返回配置完整且启用的追踪 Provider。"""
     return get_tracing_config().enabled_providers
 
 
 def get_explicitly_enabled_tracing_providers() -> list[str]:
-    """Return tracing providers explicitly enabled by config, even if incomplete."""
+    """返回显式启用的追踪 Provider（即使配置不完整）。"""
     return get_tracing_config().explicitly_enabled_providers
 
 
 def validate_enabled_tracing_providers() -> None:
-    """Validate that any explicitly enabled providers are fully configured."""
+    """验证所有显式启用的 Provider 配置完整。"""
     get_tracing_config().validate_enabled()
 
 
 def is_tracing_enabled() -> bool:
-    """Check if any tracing provider is enabled and fully configured."""
+    """检查是否有任何追踪 Provider 配置完整且启用。"""
     return get_tracing_config().is_configured

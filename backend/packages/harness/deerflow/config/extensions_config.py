@@ -1,4 +1,31 @@
-"""Unified extensions configuration for MCP servers and skills."""
+"""统一扩展配置 — MCP 服务器和技能状态声明。
+
+本模块管理 extensions_config.json 文件的加载和解析。
+该文件声明所有 MCP 服务器和技能的启用状态。
+
+### 为什么单独一个配置文件
+MCP 服务器和技能状态需要频繁修改（通过 Gateway API），
+与 config.yaml（主配置，手动编辑）分离：
+- config.yaml: 静态配置（模型、沙箱、工具声明），手动维护
+- extensions_config.json: 动态配置（MCP 服务器、技能开关），API 驱动
+
+### 配置文件优先级
+1. 显式 config_path 参数
+2. DEER_FLOW_EXTENSIONS_CONFIG_PATH 环境变量
+3. 项目根目录下的 extensions_config.json
+4. 传统 mcp_config.json（向后兼容）
+5. backend/ 和 repo-root 目录下的回退查找
+6. 都找不到 → 返回空配置（扩展是可选的）
+
+### 环境变量解析
+配置值以 $ 开头的会被解析为环境变量（如 $OPENAI_API_KEY）。
+解析在原地修改 dict（in-place），而非返回新 dict。
+未找到的环境变量被替换为空字符串，避免下游收到字面的 $VAR。
+
+### 全局单例 + 缓存
+get_extensions_config() 返回缓存的单例。
+Gateway API 修改配置后调用 reload_extensions_config() 刷新。
+"""
 
 import json
 import os
@@ -11,7 +38,11 @@ from deerflow.config.runtime_paths import existing_project_file
 
 
 class McpOAuthConfig(BaseModel):
-    """OAuth configuration for an MCP server (HTTP/SSE transports)."""
+    """MCP 服务器的 OAuth 配置（HTTP/SSE 传输）。
+
+    支持 client_credentials 和 refresh_token 两种授权类型。
+    令牌端点的响应字段名可配置，适配非标准 OAuth 提供商。
+    """
 
     enabled: bool = Field(default=True, description="Whether OAuth token injection is enabled")
     token_url: str = Field(description="OAuth token endpoint URL")
@@ -34,7 +65,16 @@ class McpOAuthConfig(BaseModel):
 
 
 class McpServerConfig(BaseModel):
-    """Configuration for a single MCP server."""
+    """单个 MCP 服务器的配置。
+
+    ### 传输类型
+    - stdio: 启动子进程通信（command + args + env）
+    - sse: Server-Sent Events 连接（url + headers）
+    - http: HTTP 长连接（url + headers）
+
+    ### OAuth（sse/http 专用）
+    通过 oauth 字段配置自动令牌获取和刷新。
+    """
 
     enabled: bool = Field(default=True, description="Whether this MCP server is enabled")
     type: str = Field(default="stdio", description="Transport type: 'stdio', 'sse', or 'http'")
@@ -49,13 +89,17 @@ class McpServerConfig(BaseModel):
 
 
 class SkillStateConfig(BaseModel):
-    """Configuration for a single skill's state."""
+    """单个技能的启用状态。"""
 
     enabled: bool = Field(default=True, description="Whether this skill is enabled")
 
 
 class ExtensionsConfig(BaseModel):
-    """Unified configuration for MCP servers and skills."""
+    """扩展配置聚合模型。
+
+    - mcp_servers: MCP 服务器名 → 配置的映射（JSON 中使用 mcpServers 字段名）
+    - skills: 技能名 → 启用状态的映射
+    """
 
     mcp_servers: dict[str, McpServerConfig] = Field(
         default_factory=dict,
@@ -70,27 +114,14 @@ class ExtensionsConfig(BaseModel):
 
     @classmethod
     def resolve_config_path(cls, config_path: str | None = None) -> Path | None:
-        """Resolve the extensions config file path.
+        """解析扩展配置文件路径。
 
-        Priority:
-        1. If provided `config_path` argument, use it.
-        2. If provided `DEER_FLOW_EXTENSIONS_CONFIG_PATH` environment variable, use it.
-        3. Otherwise, search the caller project root for `extensions_config.json`, then `mcp_config.json`.
-        4. For backward compatibility, also search legacy backend/repository-root defaults.
-        5. If not found, return None (extensions are optional).
-
-        Args:
-            config_path: Optional path to extensions config file.
-
-        Resolution order:
-            1. If provided `config_path` argument, use it.
-            2. If provided `DEER_FLOW_EXTENSIONS_CONFIG_PATH` environment variable, use it.
-            3. Otherwise, search the caller project root for
-               `extensions_config.json`, then legacy `mcp_config.json`.
-            4. Finally, search backend/repository-root defaults for monorepo compatibility.
-
-        Returns:
-            Path to the extensions config file if found, otherwise None.
+        优先级：
+        1. 显式参数
+        2. DEER_FLOW_EXTENSIONS_CONFIG_PATH 环境变量
+        3. 项目根目录下的 extensions_config.json 或 mcp_config.json
+        4. 传统 backend/repo-root 位置的回退查找
+        5. 都找不到 → 返回 None（扩展是可选的）
         """
         if config_path:
             path = Path(config_path)
@@ -107,6 +138,7 @@ class ExtensionsConfig(BaseModel):
             if project_config is not None:
                 return project_config
 
+            # 传统 monorepo 位置回退
             backend_dir = Path(__file__).resolve().parents[4]
             repo_root = backend_dir.parent
             for path in (
@@ -118,24 +150,17 @@ class ExtensionsConfig(BaseModel):
                 if path.exists():
                     return path
 
-            # Extensions are optional, so return None if not found
             return None
 
     @classmethod
     def from_file(cls, config_path: str | None = None) -> "ExtensionsConfig":
-        """Load extensions config from JSON file.
+        """从 JSON 文件加载扩展配置。
 
-        See `resolve_config_path` for more details.
-
-        Args:
-            config_path: Path to the extensions config file.
-
-        Returns:
-            ExtensionsConfig: The loaded config, or empty config if file not found.
+        文件不存在时返回空配置（扩展是可选的）。
+        JSON 解析失败时抛出 ValueError。
         """
         resolved_path = cls.resolve_config_path(config_path)
         if resolved_path is None:
-            # Return empty config if extensions config file is not found
             return cls(mcp_servers={}, skills={})
 
         try:
@@ -150,24 +175,19 @@ class ExtensionsConfig(BaseModel):
 
     @classmethod
     def resolve_env_variables(cls, config: dict[str, Any]) -> dict[str, Any]:
-        """Recursively resolve environment variables in the config.
+        """递归解析配置中的环境变量。
 
-        Environment variables are resolved using the `os.getenv` function. Example: $OPENAI_API_KEY
+        值以 $ 开头 → 解析为环境变量值。
+        未找到的环境变量 → 替换为空字符串（避免下游收到字面 $VAR）。
 
-        Args:
-            config: The config to resolve environment variables in.
-
-        Returns:
-            The config with environment variables resolved.
+        注意：此方法原地修改 dict（in-place mutation），与 AppConfig 版本不同。
         """
         for key, value in config.items():
             if isinstance(value, str):
                 if value.startswith("$"):
                     env_value = os.getenv(value[1:])
                     if env_value is None:
-                        # Unresolved placeholder — store empty string so downstream
-                        # consumers (e.g. MCP servers) don't receive the literal "$VAR"
-                        # token as an actual environment value.
+                        # 未解析的占位符 → 存储空字符串
                         config[key] = ""
                     else:
                         config[key] = env_value
@@ -180,41 +200,31 @@ class ExtensionsConfig(BaseModel):
         return config
 
     def get_enabled_mcp_servers(self) -> dict[str, McpServerConfig]:
-        """Get only the enabled MCP servers.
-
-        Returns:
-            Dictionary of enabled MCP servers.
-        """
+        """获取所有启用的 MCP 服务器。"""
         return {name: config for name, config in self.mcp_servers.items() if config.enabled}
 
     def is_skill_enabled(self, skill_name: str, skill_category: str) -> bool:
-        """Check if a skill is enabled.
+        """检查技能是否启用。
 
-        Args:
-            skill_name: Name of the skill
-            skill_category: Category of the skill
-
-        Returns:
-            True if enabled, False otherwise
+        - 配置中有记录 → 使用配置值
+        - 配置中无记录 → public 和 custom 类别默认启用
         """
         skill_config = self.skills.get(skill_name)
         if skill_config is None:
-            # Default to enable for public & custom skill
             return skill_category in ("public", "custom")
         return skill_config.enabled
 
+
+# ── 全局单例管理 ──
 
 _extensions_config: ExtensionsConfig | None = None
 
 
 def get_extensions_config() -> ExtensionsConfig:
-    """Get the extensions config instance.
+    """获取扩展配置（缓存单例）。
 
-    Returns a cached singleton instance. Use `reload_extensions_config()` to reload
-    from file, or `reset_extensions_config()` to clear the cache.
-
-    Returns:
-        The cached ExtensionsConfig instance.
+    首次调用时从文件加载，后续返回缓存。
+    使用 reload_extensions_config() 强制刷新。
     """
     global _extensions_config
     if _extensions_config is None:
@@ -223,17 +233,9 @@ def get_extensions_config() -> ExtensionsConfig:
 
 
 def reload_extensions_config(config_path: str | None = None) -> ExtensionsConfig:
-    """Reload the extensions config from file and update the cached instance.
+    """重新从文件加载扩展配置并更新缓存。
 
-    This is useful when the config file has been modified and you want
-    to pick up the changes without restarting the application.
-
-    Args:
-        config_path: Optional path to extensions config file. If not provided,
-                     uses the default resolution strategy.
-
-    Returns:
-        The newly loaded ExtensionsConfig instance.
+    Gateway API 修改配置后调用此函数刷新。
     """
     global _extensions_config
     _extensions_config = ExtensionsConfig.from_file(config_path)
@@ -241,23 +243,12 @@ def reload_extensions_config(config_path: str | None = None) -> ExtensionsConfig
 
 
 def reset_extensions_config() -> None:
-    """Reset the cached extensions config instance.
-
-    This clears the singleton cache, causing the next call to
-    `get_extensions_config()` to reload from file. Useful for testing
-    or when switching between different configurations.
-    """
+    """重置缓存的扩展配置。下次 get 时重新加载。"""
     global _extensions_config
     _extensions_config = None
 
 
 def set_extensions_config(config: ExtensionsConfig) -> None:
-    """Set a custom extensions config instance.
-
-    This allows injecting a custom or mock config for testing purposes.
-
-    Args:
-        config: The ExtensionsConfig instance to use.
-    """
+    """设置自定义的扩展配置实例（用于测试注入）。"""
     global _extensions_config
     _extensions_config = config

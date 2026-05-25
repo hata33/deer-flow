@@ -1,4 +1,17 @@
-"""Configuration for stream bridge."""
+"""Stream Bridge 配置 — Agent 工作器到 SSE 端点的桥接。
+
+Stream Bridge 连接后台 Agent 执行线程和前端的 SSE（Server-Sent Events）流。
+当 Agent 在后台线程运行时，中间结果通过 Bridge 传递到 Gateway 的 SSE 端点。
+
+### 后端类型
+- memory: 进程内 asyncio.Queue。仅限单进程部署（Gateway 和 Agent 在同一进程）。
+- redis: Redis Streams。计划用于 Phase 2 多进程部署（尚未实现）。
+
+### 配置场景
+- 本地开发（make dev）: memory 模式足够
+- Docker 单容器: memory 模式足够
+- 多进程/多节点: 需要 redis 模式（未来实现）
+"""
 
 from typing import Literal
 
@@ -8,7 +21,12 @@ StreamBridgeType = Literal["memory", "redis"]
 
 
 class StreamBridgeConfig(BaseModel):
-    """Configuration for the stream bridge that connects agent workers to SSE endpoints."""
+    """Stream Bridge 配置。
+
+    - type: 后端类型（memory 或 redis）
+    - redis_url: Redis URL（仅 redis 类型）
+    - queue_maxsize: 每个运行在 memory 模式中的最大缓冲事件数
+    """
 
     type: StreamBridgeType = Field(
         default="memory",
@@ -24,24 +42,23 @@ class StreamBridgeConfig(BaseModel):
     )
 
 
-# Global configuration instance — None means no stream bridge is configured
-# (falls back to memory with defaults).
+# 全局单例 — None 表示未配置，回退到 memory 默认值
 _stream_bridge_config: StreamBridgeConfig | None = None
 
 
 def get_stream_bridge_config() -> StreamBridgeConfig | None:
-    """Get the current stream bridge configuration, or None if not configured."""
+    """获取当前 Stream Bridge 配置。"""
     return _stream_bridge_config
 
 
 def set_stream_bridge_config(config: StreamBridgeConfig | None) -> None:
-    """Set the stream bridge configuration."""
+    """设置 Stream Bridge 配置。"""
     global _stream_bridge_config
     _stream_bridge_config = config
 
 
 def load_stream_bridge_config_from_dict(config_dict: dict | None) -> None:
-    """Load stream bridge configuration from a dictionary."""
+    """从字典加载 Stream Bridge 配置（由 AppConfig 初始化时调用）。"""
     global _stream_bridge_config
     if config_dict is None:
         _stream_bridge_config = None
