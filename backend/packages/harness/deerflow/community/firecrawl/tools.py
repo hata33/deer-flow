@@ -1,3 +1,36 @@
+"""
+Firecrawl 网络搜索工具 — 基于 Firecrawl API 的搜索和网页抓取
+
+本模块使用 Firecrawl API 提供网络搜索和网页内容抓取功能。
+Firecrawl 是一个专为 AI 应用设计的网页抓取服务，能够将网页
+内容转换为干净的 Markdown 格式。
+
+提供的工具:
+    - web_search_tool: 网络搜索工具，返回与查询相关的网页结果列表
+    - web_fetch_tool: 网页抓取工具，获取指定 URL 的 Markdown 内容
+
+特性:
+    - 搜索结果包含标题、URL 和描述
+    - 网页抓取直接返回 Markdown 格式内容
+    - 支持配置最大搜索结果数
+    - 所有异常均被捕获并返回友好的错误消息
+
+配置方式:
+    在 config.yaml 的 tools 段下配置:
+        tools:
+          web_search:
+            api_key: "your-firecrawl-api-key"
+            max_results: 5
+          web_fetch:
+            api_key: "your-firecrawl-api-key"
+
+设计决策:
+    - 使用 LangChain 的 @tool 装饰器注册为可调用工具
+    - 搜索结果通过 getattr 安全访问属性（SearchResultWeb 对象）
+    - 网页抓取使用 scrape API 的 markdown 格式输出
+    - 内容截断为 4096 字符，平衡信息完整性和上下文长度
+"""
+
 import json
 
 from firecrawl import FirecrawlApp
@@ -7,6 +40,18 @@ from deerflow.config import get_app_config
 
 
 def _get_firecrawl_client(tool_name: str = "web_search") -> FirecrawlApp:
+    """创建并返回配置好的 Firecrawl API 客户端。
+
+    从应用配置中获取 Firecrawl API Key。根据不同的工具名称
+    （web_search 或 web_fetch）从对应的配置段读取 API Key。
+
+    Args:
+        tool_name: 工具名称，用于确定从哪个配置段读取 API Key。
+                   默认为 "web_search"。
+
+    Returns:
+        配置好的 FirecrawlApp 实例。
+    """
     config = get_app_config().get_tool_config(tool_name)
     api_key = None
     if config is not None and "api_key" in config.model_extra:
@@ -16,10 +61,20 @@ def _get_firecrawl_client(tool_name: str = "web_search") -> FirecrawlApp:
 
 @tool("web_search", parse_docstring=True)
 def web_search_tool(query: str) -> str:
-    """Search the web.
+    """搜索网络。
+
+    使用 Firecrawl 搜索 API 执行网络搜索，返回包含标题、URL 和
+    描述的搜索结果列表。
 
     Args:
-        query: The query to search for.
+        query: 搜索查询字符串。
+
+    Returns:
+        JSON 格式的搜索结果列表，每条结果包含:
+        - title: 网页标题
+        - url: 网页链接
+        - snippet: 内容描述
+        如果搜索失败，返回 "Error: <错误信息>" 格式的字符串。
     """
     try:
         config = get_app_config().get_tool_config("web_search")
@@ -30,7 +85,8 @@ def web_search_tool(query: str) -> str:
         client = _get_firecrawl_client("web_search")
         result = client.search(query, limit=max_results)
 
-        # result.web contains list of SearchResultWeb objects
+        # result.web 包含 SearchResultWeb 对象列表
+        # 使用 getattr 安全访问属性，避免 AttributeError
         web_results = result.web or []
         normalized_results = [
             {
@@ -48,14 +104,20 @@ def web_search_tool(query: str) -> str:
 
 @tool("web_fetch", parse_docstring=True)
 def web_fetch_tool(url: str) -> str:
-    """Fetch the contents of a web page at a given URL.
-    Only fetch EXACT URLs that have been provided directly by the user or have been returned in results from the web_search and web_fetch tools.
-    This tool can NOT access content that requires authentication, such as private Google Docs or pages behind login walls.
-    Do NOT add www. to URLs that do NOT have them.
-    URLs must include the schema: https://example.com is a valid URL while example.com is an invalid URL.
+    """抓取给定 URL 的网页内容。
+    仅抓取用户直接提供的 URL 或 web_search 和 web_fetch 工具返回的 URL。
+    无法访问需要身份验证的内容（如私有 Google 文档或登录墙后的页面）。
+    不要为没有 www. 的 URL 添加 www.。
+    URL 必须包含协议：https://example.com 是有效的 URL，而 example.com 是无效的 URL。
+
+    使用 Firecrawl 的 scrape API 将网页转换为 Markdown 格式。
 
     Args:
-        url: The URL to fetch the contents of.
+        url: 要抓取内容的网页 URL。
+
+    Returns:
+        Markdown 格式的网页内容（带标题），截断为 4096 字符。
+        如果抓取失败或无内容，返回错误信息。
     """
     try:
         client = _get_firecrawl_client("web_fetch")
