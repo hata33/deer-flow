@@ -10,43 +10,43 @@
 用户消息进入
      │
      ▼
-┌─ Config 加载 ─────────────────────────────────────┐
+┌─ Config 加载  ─────────────────────────────────────┐
 │ config.yaml → SummarizationConfig                  │
 │ (enabled, model_name, trigger, keep, preserve)     │
 └────────────────────────┬───────────────────────────┘
                          │
                          ▼
-┌─ 中间件注册 ─────────────────────────────────────┐
+┌─ 中间件注册   ─────────────────────────────────────┐
 │ _build_middlewares() (agent.py:319-324)           │
 │ └─ _create_summarization_middleware()             │
-│     └─ 挂载 memory_flush_hook 为 BeforeHook      │
-└────────────────────────┬───────────────────────────┘
+│     └─ 挂载 memory_flush_hook 为 BeforeHook       │
+└────────────────────────┬──────────────────────────┘
                          │
                          ▼ (每次 before_model)
-┌─ 触发检测 ───────────────────────────────────────┐
+┌─ 触发检测   ───────────────────────────────────────┐
 │ _should_summarize()                               │
-│ ├─ 计算 token 总量（token_counter）               │
-│ ├─ 检查是否超过 trigger 阈值                       │
-│ └─ 未超阈值 → 跳过，继续正常流程                    │
+│ ├─ 计算 token 总量（token_counter）                │
+│ ├─ 检查是否超过 trigger 阈值                        │
+│ └─ 未超阈值 → 跳过，继续正常流程                     │
 └────────────────────────┬───────────────────────────┘
                          │ (超阈值)
                          ▼
-┌─ 跨模块协调 ─────────────────────────────────────┐
+┌─ 跨模块协调    ─────────────────────────────────────┐
 │                                                    │
-│  ① Memory: memory_flush_hook()                    │
-│     └─ 消息被删除前 → 立即排队给记忆系统            │
+│  ① Memory: memory_flush_hook()                     │
+│     └─ 消息被删除前 → 立即排队给记忆系统              │
 │         (add_nowait，跳过 debounce)                 │
 │                                                    │
-│  ② DynamicContext: _preserve_dynamic_context()    │
-│     └─ 从 messages_to_summarize 中移出 reminder    │
+│  ② DynamicContext: _preserve_dynamic_context()     │
+│     └─ 从 messages_to_summarize 中移出 reminder     │
 │         防止日期/记忆注入被误删                      │
 │                                                    │
 │  ③ Skills: _partition_with_skill_rescue()          │
-│     └─ 保留最近 N 个技能文件读取的 ToolMessage      │
+│     └─ 保留最近 N 个技能文件读取的 ToolMessage       │
 │         不超过 token 预算                           │
 │                                                    │
-│  ④ Todo: (检测在下一轮 before_model)               │
-│     └─ write_todos 被摘要截断后 → 注入提醒消息      │
+│  ④ Todo: (检测在下一轮 before_model)                │
+│     └─ write_todos 被摘要截断后 → 注入提醒消息       │
 └────────────────────────┬───────────────────────────┘
                          │
                          ▼

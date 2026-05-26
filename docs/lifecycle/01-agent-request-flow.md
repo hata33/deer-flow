@@ -9,22 +9,22 @@
 ```
 ┌──────────┐  HTTP   ┌──────────┐  create  ┌──────────────┐  astream  ┌──────────────┐
 │ Frontend │ ──────▸ │ Gateway  │ ───────▸ │ RunManager   │ ────────▸ │ LangGraph    │
-│ (3000)   │ ◂────── │ API      │          │ (worker.py)  │          │ Graph        │
-└──────────┘  SSE    └──────────┘          └──────────────┘          └───────┬──────┘
-     ▲                                    run_agent()                       │
-     │                                         │                            ▼
-     │                                         ▼                   ┌──────────────┐
-     │                                  ┌──────────────┐          │ Agent Node   │
-     │                                  │ StreamBridge │ ◂──────── │ (middleware  │
-     │                                  │ (SSE events) │          │  chain)      │
-     │                                  └──────────────┘          └──────┬───────┘
+│ (3000)   │ ◂────── │ API      │          │ (worker.py)  │           │ Graph        │
+└──────────┘  SSE    └──────────┘          └──────────────┘           └───────┬──────┘
+     ▲                                        run_agent()                     │
+     │                                            │                           ▼
+     │                                            ▼                   ┌──────────────┐
+     │                                     ┌──────────────┐           │ Agent Node   │
+     │                                     │ StreamBridge │ ◂──────── │ (middleware  │
+     │                                     │ (SSE events) │           │  chain)      │
+     │                                     └──────────────┘           └──────┬───────┘
      │                                                                       │
      │                                            ┌──────────────────────────┤
      │                                            ▼                          ▼
      │                                     ┌─────────────┐         ┌─────────────┐
      └──────────────────────────────────── │ LLM Model   │         │ Tool Call   │
        SSE: messages, custom, end          │ (bind_tools)│         │ (bash/ls/…) │
-                                          └─────────────┘         └─────────────┘
+                                           └─────────────┘         └─────────────┘
 ```
 
 ---
@@ -195,8 +195,8 @@ make_lead_agent(config)
      │
      ▼
 ┌─ LLM 调用 ─────────────────────────────────────────────────┐
-│  model.bind_tools(tools).invoke(messages)                    │
-│  → 返回 AIMessage（可能包含 tool_calls）                      │
+│  model.bind_tools(tools).invoke(messages)                  │
+│  → 返回 AIMessage（可能包含 tool_calls）                     │
 └─────────────────────────────────────────────────────────────┘
      │
      ▼
@@ -218,13 +218,13 @@ make_lead_agent(config)
      │
      ▼
 ┌─ 工具执行 ──────────────────────────────────────────────────┐
-│  LangChain 执行工具 → 返回 ToolMessage                        │
-│  → 回到 before_model（循环直到无 tool_calls）                  │
+│  LangChain 执行工具 → 返回 ToolMessage                      │
+│  → 回到 before_model（循环直到无 tool_calls）                │
 └─────────────────────────────────────────────────────────────┘
      │
      ▼ (无 tool_calls，最终响应)
 ┌─ after_agent ───────────────────────────────────────────────┐
-│ [14] MemoryMiddleware         排队记忆更新                     │
+│ [14] MemoryMiddleware         排队记忆更新                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -294,20 +294,20 @@ Gateway ──创建──▸ RunManager ──调用──▸ Worker
     │         ┌─────────────────────────┤
     │         ▼                         ▼
     │    Agent Factory            StreamBridge
-    │    ├─ Models ◂──── Config       │
-    │    ├─ Tools  ◂──── Skills       │
+    │    ├─ Models ◂──── Config         │
+    │    ├─ Tools  ◂──── Skills         │
     │    ├─ MCP    ◂──── ExtensionsConfig
-    │    └─ Prompt ◂──── Memory        │
+    │    └─ Prompt ◂──── Memory         │
     │         │                         │
     │         ▼                         ▼
     │    Middleware Chain          SSE Events
-    │    ├─ 最多 20 个中间件            │
+    │    ├─ 最多 20 个中间件             │
     │    │  (8 基础必选 + 最多 12 条件)
-    │    └─ 跨中间件协作:              │
-    │       Memory↔Summarization       │
+    │    └─ 跨中间件协作:                │
+    │       Memory↔Summarization        │
     │       DynamicContext↔Summarization
-    │       Todo↔Summarization         │
-    │       TokenUsage↔Subagent        │
+    │       Todo↔Summarization          │
+    │       TokenUsage↔Subagent         │
     │                                   │
     │                                   ▼
     └──────────────────────────── Frontend (React)
