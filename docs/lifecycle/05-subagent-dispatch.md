@@ -9,7 +9,7 @@
 ```
 ┌──────────┐  tool call   ┌─────────────────┐  limit   ┌──────────────────────────┐
 │ LLM      │ ──────────▸  │ SubagentLimit   │ ──────▸  │ task() Tool              │
-│ Response │   "task"     │ Middleware       │  ≤3      │ (task_tool.py)           │
+│ Response │   "task"     │ Middleware      │  ≤3      │ (task_tool.py)           │
 └──────────┘              └─────────────────┘          └────────────┬─────────────┘
                                                                       │
                                                      ┌────────────────┤
@@ -25,8 +25,8 @@
                                           │ Execution    │          │ SSE
                                           │ Event Loop   │          ▼
                                           │ (persistent) │  ┌──────────────┐
-                                          └──────┬───────┘  │ StreamBridge  │
-                                                 │          │ → Frontend    │
+                                          └──────┬───────┘  │ StreamBridge │
+                                                 │          │ → Frontend   │
                                                  ▼          └──────────────┘
                                           ┌──────────────┐
                                           │ Subagent     │
@@ -75,7 +75,7 @@ def task(
 
 **核心文件**: `packages/harness/deerflow/agents/middlewares/subagent_limit_middleware.py`
 
-**拦截点**: `after_model()` / `aafter_model()`
+**拦截点**: `after_model()`（`aafter_model()` 为其异步镜像，逻辑相同）
 
 **限制逻辑**:
 ```
@@ -225,15 +225,71 @@ subagents:
 **轮询机制**:
 ```
 task_tool.py 每 5 秒轮询:
-  ┌──────────┐    get_background_task_result()    ┌──────────────┐
-  │ task()   │ ──────────────────────────────────▸ │ SubagentResult│
-  │ (主线程) │ ◂────────────────────────────────── │ (后台线程)    │
-  └──────────┘    返回当前状态和进度               └──────────────┘
+  ┌──────────┐    get_background_task_result()    ┌───────────────┐
+  │ task()   │ ─────────────────────────────────▸ │ SubagentResult│
+  │ (主线程)  │ ◂────────────────────────────────── │ (后台线程)     │
+  └──────────┘    返回当前状态和进度                └───────────────┘
 ```
 
 **跨模块协作**:
 - **StreamBridge ↔ Gateway API**: SSE 端点 `POST /api/threads/{id}/runs/stream`
 - **StreamBridge ↔ Frontend**: Next.js EventSource 接收事件
+
+---
+
+## 阶段 ⑥：Lead Agent 汇总判断 — ReAct 回路
+
+`task_tool.py` 返回的不是最终答案，而是一个 `ToolMessage`，内容为子代理的执行结果摘要。这个消息回到 LangGraph 的 ReAct 循环，**lead agent 再次进入 LLM 调用**，看到子代理结果后自主判断下一步。
+
+**返回格式**（`task_tool.py:447-474`）:
+
+| 子代理终态 | ToolMessage 内容 |
+|-----------|-----------------|
+| COMPLETED | `"Task Succeeded. Result: {result.result}"` |
+| FAILED | `"Task failed. Error: {result.error}"` |
+| TIMED_OUT | `"Task timed out. Error: {result.error}"` |
+| CANCELLED | `"Task cancelled by user."` |
+
+**Lead Agent 的三种判断**:
+
+```
+子代理返回 ToolMessage
+    │
+    ▼ Lead Agent 再次进入 LLM 调用（before_model → LLM → after_model）
+    │
+    ├─ 结果满意 → AIMessage(content="根据分析结果...")  无 tool_calls → 最终回复用户
+    │
+    ├─ 结果不够 → AIMessage(tool_calls=[{name: "task", ...}])  再次派发子代理
+    │              （换 prompt、换 subagent_type、缩小范围等）
+    │
+    └─ 需综合多个子代理结果 → AIMessage(content="综合三个子代理的分析...")
+                               （可能同时看到多个 ToolMessage，汇总后输出）
+```
+
+**完整回路**:
+
+```
+用户消息
+  → Lead Agent LLM 推理
+    → AIMessage(tool_calls=[task("数据分析", ...)])
+      → SubagentExecutor 执行
+        → ToolMessage("Task Succeeded. Result: 数据包含12个异常值...")
+          → Lead Agent LLM 再次推理（看到子代理结果）
+            → 判断: 结果不够详细
+            → AIMessage(tool_calls=[task("异常值详细分析", ...)])
+              → SubagentExecutor 再次执行
+                → ToolMessage("Task Succeeded. Result: 异常值集中在...")
+                  → Lead Agent LLM 第三次推理
+                    → 判断: 信息充分
+                    → AIMessage(content="分析完成。数据共12个异常值，集中在...") → 回复用户
+```
+
+这个回路是 LangGraph ReAct 图的标准行为：只要 AIMessage 包含 `tool_calls`，图就继续循环（`tool_calls → 工具执行 → ToolMessage → 再次 LLM`），直到 LLM 返回不含 `tool_calls` 的 AIMessage 才结束。
+
+**跨模块协作**:
+- **task_tool → LangGraph ReAct**: ToolMessage 回到消息列表，触发下一轮 LLM 调用
+- **Lead Agent ↔ Checkpointer**: 每轮循环自动保存 checkpoint，支持中断恢复
+- **Lead Agent ↔ 中间件链**: 每轮循环都经过完整的中间件链（SummarizationMiddleware 可能压缩上下文、LoopDetectionMiddleware 检测循环等）
 
 ---
 

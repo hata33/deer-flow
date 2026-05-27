@@ -7,11 +7,11 @@
 ## 全链路架构图
 
 ```
-┌──────────┐  multipart   ┌──────────┐  convert  ┌──────────────┐  store  ┌──────────────┐
-│ Frontend │ ──────────▸  │ Gateway  │ ────────▸ │ File         │ ──────▸│ Thread       │
-│ (Drop    │   POST       │ Uploads  │  PDF/PPT/ │ Conversion   │        │ Directory    │
-│  Zone)   │   /uploads   │ Router   │  Excel/   │ (markitdown) │        │ Structure    │
-└──────────┘              └──────────┘  Word     └──────────────┘        └──────┬───────┘
+┌──────────┐  multipart   ┌──────────┐  convert  ┌──────────────┐   store   ┌──────────────┐
+│ Frontend │ ──────────▸  │ Gateway  │ ────────▸ │ File         │  ──────▸  │ Thread       │
+│ (Drop    │   POST       │ Uploads  │  PDF/PPT/ │ Conversion   │           │ Directory    │
+│  Zone)   │   /uploads   │ Router   │  Excel/   │ (markitdown) │           │ Structure    │
+└──────────┘              └──────────┘  Word     └──────────────┘           └──────┬───────┘
                                                                                    │
        ┌───────────────────────────────────────────────────────────────────────────┤
        │                                                                           │
