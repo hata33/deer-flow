@@ -6,10 +6,10 @@
 
 ```
 config.yaml → AppConfig → ModelConfig → create_chat_model() → BaseChatModel 实例
-                                          ↑
-                                    反射系统 (resolve_class)
-                                          ↓
-                                    Provider 类 (ClaudeChatModel, VllmChatModel, ...)
+                                             ↑
+                                       反射系统 (resolve_class)
+                                             ↓
+                                       Provider 类 (ClaudeChatModel, VllmChatModel, ...)
 ```
 
 在整个 DeerFlow 架构中，模型系统的位置如下：
