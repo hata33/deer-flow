@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeerFlow - 配置参考手册</title>
+  <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #0a0a0f; --bg-secondary: #12121a; --bg-card: #1a1a2e;
+      --border: #2a2a4a; --text-primary: #e8e8f0; --text-secondary: #9999b8;
+      --text-muted: #666688; --accent-blue: #4f8ff7; --accent-purple: #8b5cf6;
+      --accent-green: #22c55e; --accent-orange: #f59e0b; --accent-red: #ef4444;
+      --accent-cyan: #06b6d4; --accent-pink: #ec4899;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.7; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .nav-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(10,10,15,0.85); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0 2rem; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--text-primary); }
+    .nav-logo .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, #4f8ff7, #8b5cf6); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+    .nav-links { display: flex; gap: 0.25rem; flex-wrap: nowrap; overflow-x: auto; }
+    .nav-links a { padding: 0.5rem 0.75rem; border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 0.8rem; font-weight: 500; transition: all 0.2s; white-space: nowrap; }
+    .nav-links a:hover, .nav-links a.active { background: var(--bg-card); color: var(--text-primary); }
+
+    .main-content { max-width: 1280px; margin: 0 auto; padding: 96px 2rem 4rem; }
+    .hero { text-align: center; padding: 2rem 0 3rem; }
+    .hero h1 { font-size: 2.8rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 1rem; background: linear-gradient(135deg, #e8e8f0, #9999b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero p { font-size: 1.1rem; color: var(--text-secondary); max-width: 600px; margin: 0 auto; }
+
+    .section { margin-bottom: 3rem; }
+    .section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+    .section-icon { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+    .section-header h2 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; }
+    .section-header .badge { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; padding: 0.15rem 0.5rem; border-radius: 4px; margin-left: 0.5rem; }
+    .badge-required { background: rgba(239,68,68,0.15); color: var(--accent-red); }
+    .badge-optional { background: rgba(34,197,94,0.15); color: var(--accent-green); }
+    .badge-advanced { background: rgba(139,92,246,0.15); color: var(--accent-purple); }
+
+    /* Config Table */
+    .config-block { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 1.5rem; }
+    .config-block .block-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.5rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
+    .config-block .block-header h3 { font-size: 0.95rem; font-weight: 600; }
+    .config-block .block-header code { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--accent-blue); background: rgba(79,143,247,0.1); padding: 0.15rem 0.5rem; border-radius: 4px; }
+    .config-block .block-header .block-desc { color: var(--text-muted); font-size: 0.8rem; margin-left: auto; }
+    .config-block table { width: 100%; border-collapse: collapse; }
+    .config-block th { padding: 0.75rem 1.25rem; text-align: left; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border); }
+    .config-block td { padding: 0.7rem 1.25rem; border-bottom: 1px solid rgba(42,42,74,0.5); font-size: 0.85rem; vertical-align: top; }
+    .config-block tr:last-child td { border-bottom: none; }
+    .config-block tr:hover td { background: rgba(79,143,247,0.03); }
+    .config-block .field-name { font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: var(--accent-blue); font-weight: 500; white-space: nowrap; }
+    .config-block .field-type { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--accent-purple); background: rgba(139,92,246,0.08); padding: 0.1rem 0.4rem; border-radius: 3px; white-space: nowrap; }
+    .config-block .field-default { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--accent-green); }
+    .config-block .field-desc { color: var(--text-secondary); font-size: 0.82rem; }
+
+    /* Code block */
+    .code-block { background: #0d0d14; border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; margin: 1rem 0; overflow-x: auto; position: relative; }
+    .code-block pre { margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; line-height: 1.75; white-space: pre; color: var(--text-secondary); }
+    .code-block .code-lang { position: absolute; top: 0.5rem; right: 0.75rem; font-size: 0.65rem; color: var(--text-muted); background: var(--bg-card); padding: 0.15rem 0.5rem; border-radius: 4px; font-family: 'JetBrains Mono', monospace; }
+    .hl-key { color: var(--accent-blue); }
+    .hl-str { color: var(--accent-green); }
+    .hl-comment { color: var(--text-muted); font-style: italic; }
+    .hl-var { color: var(--accent-orange); }
+
+    .diagram-container { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; margin-bottom: 1.5rem; overflow-x: auto; }
+    .diagram-container pre { margin: 0; }
+    .mermaid { display: flex; justify-content: center; }
+
+    /* Env table */
+    .env-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1rem; }
+    .env-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; }
+    .env-card .env-name { font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: var(--accent-orange); font-weight: 600; }
+    .env-card .env-desc { font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.25rem; }
+    .env-card .env-example { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+    .tabs { display: flex; gap: 0.25rem; margin-bottom: 1.5rem; padding: 0.25rem; background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border); overflow-x: auto; }
+    .tab-btn { padding: 0.5rem 1rem; border-radius: 10px; border: none; background: transparent; color: var(--text-secondary); font-size: 0.8rem; font-weight: 500; cursor: pointer; transition: all 0.2s; white-space: nowrap; font-family: inherit; }
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active { background: var(--bg-card); color: var(--text-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .footer { text-align: center; padding: 3rem 0; border-top: 1px solid var(--border); margin-top: 4rem; }
+    .footer p { color: var(--text-muted); font-size: 0.8rem; }
+    @media (max-width: 768px) { .hero h1 { font-size: 2rem; } .main-content { padding: 80px 1rem 2rem; } .nav-links { display: none; } }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="index.html" class="nav-logo"><span class="logo-icon">🦌</span><span>DeerFlow Config Ref</span></a>
+    <div class="nav-links">
+      <a href="index.html">🏠 首页</a>
+      <a href="module-structure.html">模块</a>
+      <a href="data-flow.html">数据流</a>
+      <a href="customization-guide.html">定制化</a>
+      <a href="security-architecture.html">安全</a>
+      <a href="#top" class="active">⚙️ 配置</a>
+      <a href="deployment-guide.html">部署</a>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <div class="hero" id="top">
+      <h1>⚙️ 配置参考手册</h1>
+      <p>config.yaml 全字段解析 + extensions_config.json + 环境变量清单<br/>默认值、类型、必填标记，日常开发查阅手册</p>
+    </div>
+
+    <!-- File Overview -->
+    <div class="diagram-container">
+      <pre class="mermaid">
+graph LR
+    CFG["config.yaml<br/>主配置文件"] --> M["models<br/>模型配置"]
+    CFG --> T["tools<br/>工具配置"]
+    CFG --> S["subagents<br/>子代理配置"]
+    CFG --> SK["skills<br/>技能路径"]
+    CFG --> SB["sandbox<br/>沙箱配置"]
+    CFG --> MEM["memory<br/>记忆配置"]
+    CFG --> DB["database<br/>数据库配置"]
+    CFG --> CH["channels<br/>IM 通道"]
+    CFG --> GR["guardrails<br/>安全策略"]
+    CFG --> LOOP["loop_detection<br/>循环检测"]
+    CFG --> SUM["summarization<br/>自动摘要"]
+    CFG --> TITLE["title<br/>标题生成"]
+
+    EXT["extensions_config.json<br/>扩展配置"] --> MCP["mcpServers<br/>MCP 服务"]
+    EXT --> ACP["mcpInterceptors<br/>MCP 拦截器"]
+
+    style CFG fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style EXT fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+      </pre>
+    </div>
+
+    <!-- 1. Global -->
+    <div class="section" id="global">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(79,143,247,0.15);">🌐</div>
+        <h2>全局配置</h2>
+        <span class="badge badge-required">必填</span>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>顶层字段</h3><code>config.yaml</code></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">config_version</td><td><span class="field-type">int</span></td><td class="field-default">9</td><td class="field-desc">配置文件版本号，用于迁移兼容</td></tr>
+            <tr><td class="field-name">log_level</td><td><span class="field-type">string</span></td><td class="field-default">"info"</td><td class="field-desc">日志级别：debug / info / warning / error</td></tr>
+            <tr><td class="field-name">name</td><td><span class="field-type">string</span></td><td class="field-default">"DeerFlow"</td><td class="field-desc">应用名称，显示在 UI 标题</td></tr>
+            <tr><td class="field-name">token_usage</td><td><span class="field-type">object</span></td><td class="field-default">{enabled: true}</td><td class="field-desc">Token 用量统计开关</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 2. Models -->
+    <div class="section" id="models">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(34,197,94,0.15);">🤖</div>
+        <h2>models — 模型配置</h2>
+        <span class="badge badge-required">必填</span>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>模型注册</h3><code>models:</code><span class="block-desc">数组，可注册多个模型</span></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">name</td><td><span class="field-type">string</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">模型内部标识符，全局唯一</td></tr>
+            <tr><td class="field-name">display_name</td><td><span class="field-type">string</span></td><td style="color:var(--text-muted);font-size:0.8rem;">可选</td><td class="field-desc">用户界面显示名称</td></tr>
+            <tr><td class="field-name">use</td><td><span class="field-type">string</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">Python 类路径，如 <code style="font-size:0.75rem;color:var(--accent-blue);">langchain_openai:ChatOpenAI</code></td></tr>
+            <tr><td class="field-name">model</td><td><span class="field-type">string</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">模型参数，如 gpt-4 / claude-sonnet-4-20250514</td></tr>
+            <tr><td class="field-name">api_key</td><td><span class="field-type">string</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">API 密钥，支持 <code style="color:var(--accent-orange);">$ENV_VAR</code> 环境变量引用</td></tr>
+            <tr><td class="field-name">base_url</td><td><span class="field-type">string</span></td><td style="color:var(--text-muted);font-size:0.8rem;">可选</td><td class="field-desc">自定义 API 端点（Ollama/vLLM 需要）</td></tr>
+            <tr><td class="field-name">temperature</td><td><span class="field-type">float</span></td><td style="color:var(--text-muted);font-size:0.8rem;">可选</td><td class="field-desc">生成温度 0.0-2.0</td></tr>
+            <tr><td class="field-name">max_tokens</td><td><span class="field-type">int</span></td><td style="color:var(--text-muted);font-size:0.8rem;">可选</td><td class="field-desc">最大输出 Token 数</td></tr>
+            <tr><td class="field-name">request_timeout</td><td><span class="field-type">float</span></td><td class="field-default">600.0</td><td class="field-desc">请求超时（秒）</td></tr>
+            <tr><td class="field-name">max_retries</td><td><span class="field-type">int</span></td><td class="field-default">2</td><td class="field-desc">最大重试次数</td></tr>
+            <tr><td class="field-name">supports_vision</td><td><span class="field-type">bool</span></td><td class="field-default">false</td><td class="field-desc">是否支持图像输入</td></tr>
+            <tr><td class="field-name">supports_thinking</td><td><span class="field-type">bool</span></td><td class="field-default">false</td><td class="field-desc">是否支持深度思考模式</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>已支持供应商</h3><span class="block-desc">use 字段可选的 Python 类路径</span></div>
+        <table>
+          <thead><tr><th>供应商</th><th>use 值</th><th>示例 model</th></tr></thead>
+          <tbody>
+            <tr><td>OpenAI</td><td><code style="font-size:0.75rem;color:var(--accent-blue);">langchain_openai:ChatOpenAI</code></td><td>gpt-4</td></tr>
+            <tr><td>Anthropic</td><td><code style="font-size:0.75rem;color:var(--accent-blue);">langchain_anthropic:ChatAnthropic</code></td><td>claude-sonnet-4-20250514</td></tr>
+            <tr><td>Google Gemini</td><td><code style="font-size:0.75rem;color:var(--accent-blue);">langchain_google_genai:ChatGoogleGenerativeAI</code></td><td>gemini-2.0-flash</td></tr>
+            <tr><td>DeepSeek</td><td><code style="font-size:0.75rem;color:var(--accent-blue);">langchain_openai:ChatOpenAI</code></td><td>deepseek-chat</td></tr>
+            <tr><td>Ollama (本地)</td><td><code style="font-size:0.75rem;color:var(--accent-blue);">langchain_ollama:ChatOllama</code></td><td>qwen3:32b</td></tr>
+            <tr><td>vLLM</td><td><code style="font-size:0.75rem;color:var(--accent-blue);">langchain_openai:ChatOpenAI</code></td><td>自定义</td></tr>
+            <tr><td>火山/豆包</td><td><code style="font-size:0.75rem;color:var(--accent-blue);">langchain_openai:ChatOpenAI</code></td><td>doubao-pro</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3. Tools -->
+    <div class="section" id="tools">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(139,92,246,0.15);">🛠️</div>
+        <h2>tools — 工具配置</h2>
+        <span class="badge badge-optional">可选</span>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>工具注册</h3><code>tools:</code><span class="block-desc">数组，每个工具独立配置</span></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">name</td><td><span class="field-type">string</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">工具唯一名称，LLM 可见</td></tr>
+            <tr><td class="field-name">group</td><td><span class="field-type">string</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">工具分组：web / file:read / file:write / bash</td></tr>
+            <tr><td class="field-name">use</td><td><span class="field-type">string</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">Python 类路径，如 <code style="font-size:0.75rem;color:var(--accent-blue);">deerflow.community.ddg_search.tools:web_search_tool</code></td></tr>
+            <tr><td class="field-name">api_key</td><td><span class="field-type">string</span></td><td style="color:var(--text-muted);font-size:0.8rem;">可选</td><td class="field-desc">工具专用 API Key，支持 <code style="color:var(--accent-orange);">$ENV_VAR</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>工具分组定义</h3><code>tool_groups:</code></div>
+        <table>
+          <thead><tr><th>分组名</th><th>权限级别</th><th>典型工具</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">web</td><td>低风险</td><td class="field-desc">web_search, web_fetch — 网络访问</td></tr>
+            <tr><td class="field-name">file:read</td><td>低风险</td><td class="field-desc">read_file, list_directory — 只读文件操作</td></tr>
+            <tr><td class="field-name">file:write</td><td>中风险</td><td class="field-desc">write_file — 写文件操作</td></tr>
+            <tr><td class="field-name">bash</td><td>高风险</td><td class="field-desc">bash — 终端命令执行</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 4. Subagents -->
+    <div class="section" id="subagents">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(6,182,212,0.15);">🔄</div>
+        <h2>subagents — 子代理配置</h2>
+        <span class="badge badge-optional">可选</span>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>全局设置</h3><code>subagents:</code></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">timeout_seconds</td><td><span class="field-type">int</span></td><td class="field-default">900</td><td class="field-desc">子代理全局超时（秒）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>内置子代理覆盖</h3><code>subagents.agents:</code><span class="block-desc">general-purpose / bash</span></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">timeout_seconds</td><td><span class="field-type">int</span></td><td class="field-desc">该子代理超时覆盖</td></tr>
+            <tr><td class="field-name">max_turns</td><td><span class="field-type">int</span></td><td class="field-desc">最大对话轮数</td></tr>
+            <tr><td class="field-name">model</td><td><span class="field-type">string</span></td><td class="field-desc">使用的模型 name（覆盖默认模型）</td></tr>
+            <tr><td class="field-name">skills</td><td><span class="field-type">string[]</span></td><td class="field-desc">技能白名单，空数组 = 无技能</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>自定义子代理</h3><code>subagents.custom_agents:</code><span class="block-desc">自定义 key 即代理名</span></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">description</td><td><span class="field-type">string</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">子代理描述，LLM 可见（用于任务分配决策）</td></tr>
+            <tr><td class="field-name">system_prompt</td><td><span class="field-type">string</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">自定义系统提示词</td></tr>
+            <tr><td class="field-name">tools</td><td><span class="field-type">string[]</span></td><td style="color:var(--text-muted);font-size:0.8rem;">可选</td><td class="field-desc">可用工具列表</td></tr>
+            <tr><td class="field-name">skills</td><td><span class="field-type">string[]</span></td><td style="color:var(--text-muted);font-size:0.8rem;">可选</td><td class="field-desc">可用技能白名单</td></tr>
+            <tr><td class="field-name">max_turns</td><td><span class="field-type">int</span></td><td class="field-default">80</td><td class="field-desc">最大对话轮数</td></tr>
+            <tr><td class="field-name">timeout_seconds</td><td><span class="field-type">int</span></td><td class="field-default">600</td><td class="field-desc">超时时间</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 5. Sandbox -->
+    <div class="section" id="sandbox">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(239,68,68,0.15);">🔒</div>
+        <h2>sandbox — 沙箱配置</h2>
+        <span class="badge badge-optional">可选</span>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>沙箱设置</h3><code>sandbox:</code></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">use</td><td><span class="field-type">string</span></td><td class="field-default">deerflow.sandbox.local:LocalSandboxProvider</td><td class="field-desc">沙箱提供者类路径。可选 Local / Docker</td></tr>
+            <tr><td class="field-name">allow_host_bash</td><td><span class="field-type">bool</span></td><td class="field-default">false</td><td class="field-desc">是否允许直接在宿主机执行 bash（跳过沙箱）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="code-block"><span class="code-lang">config.yaml</span><pre><span class="hl-comment"># 本地沙箱 (默认)</span>
+<span class="hl-key">sandbox</span>:
+  <span class="hl-key">use</span>: <span class="hl-str">deerflow.sandbox.local:LocalSandboxProvider</span>
+
+<span class="hl-comment"># Docker 沙箱 (生产推荐)</span>
+<span class="hl-key">sandbox</span>:
+  <span class="hl-key">use</span>: <span class="hl-str">deerflow.sandbox.docker:DockerSandboxProvider</span></pre></div>
+    </div>
+
+    <!-- 6. Memory -->
+    <div class="section" id="memory">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(245,158,11,0.15);">🧠</div>
+        <h2>memory — 记忆配置</h2>
+        <span class="badge badge-optional">可选</span>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>记忆系统设置</h3><code>memory:</code></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">enabled</td><td><span class="field-type">bool</span></td><td class="field-default">true</td><td class="field-desc">记忆系统总开关</td></tr>
+            <tr><td class="field-name">injection_enabled</td><td><span class="field-type">bool</span></td><td class="field-default">true</td><td class="field-desc">是否注入到系统 Prompt</td></tr>
+            <tr><td class="field-name">storage_path</td><td><span class="field-type">string</span></td><td class="field-default">"" (按用户)</td><td class="field-desc">存储路径，空则按用户隔离；绝对路径=共享</td></tr>
+            <tr><td class="field-name">storage_class</td><td><span class="field-type">string</span></td><td class="field-default">(内置)</td><td class="field-desc">存储提供者类路径，可自定义</td></tr>
+            <tr><td class="field-name">debounce_seconds</td><td><span class="field-type">int</span></td><td class="field-default">30</td><td class="field-desc">更新去抖动间隔（秒）</td></tr>
+            <tr><td class="field-name">model_name</td><td><span class="field-type">string</span></td><td class="field-default">null</td><td class="field-desc">事实提取使用的模型名，null 用默认模型</td></tr>
+            <tr><td class="field-name">max_facts</td><td><span class="field-type">int</span></td><td class="field-default">100</td><td class="field-desc">最大事实数量</td></tr>
+            <tr><td class="field-name">fact_confidence_threshold</td><td><span class="field-type">float</span></td><td class="field-default">0.7</td><td class="field-desc">事实置信度阈值 0.0-1.0</td></tr>
+            <tr><td class="field-name">max_injection_tokens</td><td><span class="field-type">int</span></td><td class="field-default">2000</td><td class="field-desc">注入 Prompt 的最大 Token 数</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 7. Database -->
+    <div class="section" id="database">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(79,143,247,0.15);">💾</div>
+        <h2>database / run_events — 持久化</h2>
+        <span class="badge badge-optional">可选</span>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>数据库配置</h3><code>database:</code></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">backend</td><td><span class="field-type">string</span></td><td class="field-default">"sqlite"</td><td class="field-desc">数据库后端：sqlite / postgresql</td></tr>
+            <tr><td class="field-name">sqlite_dir</td><td><span class="field-type">string</span></td><td class="field-default">".deer-flow/data"</td><td class="field-desc">SQLite 数据文件目录（backend=sqlite 时）</td></tr>
+            <tr><td class="field-name">url</td><td><span class="field-type">string</span></td><td class="field-default">—</td><td class="field-desc">PostgreSQL 连接 URL（backend=postgresql 时）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>运行事件存储</h3><code>run_events:</code></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">backend</td><td><span class="field-type">string</span></td><td class="field-default">"memory"</td><td class="field-desc">事件存储后端：memory / database</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 8. Guardrails -->
+    <div class="section" id="guardrails">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(239,68,68,0.15);">🛡️</div>
+        <h2>guardrails — 安全策略</h2>
+        <span class="badge badge-advanced">高级</span>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>Guardrail 配置</h3><code>guardrails:</code></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">enabled</td><td><span class="field-type">bool</span></td><td class="field-default">false</td><td class="field-desc">安全策略总开关</td></tr>
+            <tr><td class="field-name">provider.use</td><td><span class="field-type">string</span></td><td class="field-default">—</td><td class="field-desc">Guardrail 提供者类路径</td></tr>
+            <tr><td class="field-name">provider.config</td><td><span class="field-type">object</span></td><td class="field-default">—</td><td class="field-desc">提供者专属配置，如 denied_tools 列表</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="code-block"><span class="code-lang">config.yaml</span><pre><span class="hl-key">guardrails</span>:
+  <span class="hl-key">enabled</span>: <span class="hl-str">true</span>
+  <span class="hl-key">provider</span>:
+    <span class="hl-key">use</span>: <span class="hl-str">deerflow.guardrails.builtin:AllowlistProvider</span>
+    <span class="hl-key">config</span>:
+      <span class="hl-key">denied_tools</span>: [<span class="hl-str">"bash"</span>]  <span class="hl-comment"># 禁止的工具列表</span></pre></div>
+    </div>
+
+    <!-- 9. Other Features -->
+    <div class="section" id="features">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(139,92,246,0.15);">⚡</div>
+        <h2>其他功能配置</h2>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab(event, 'feat-loop')">循环检测</button>
+        <button class="tab-btn" onclick="switchTab(event, 'feat-sum')">自动摘要</button>
+        <button class="tab-btn" onclick="switchTab(event, 'feat-title')">标题生成</button>
+        <button class="tab-btn" onclick="switchTab(event, 'feat-skill')">技能 / 熔断</button>
+      </div>
+
+      <div id="feat-loop" class="tab-panel active">
+        <div class="config-block">
+          <div class="block-header"><h3>loop_detection — 循环检测</h3><code>loop_detection:</code></div>
+          <table>
+            <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td class="field-name">enabled</td><td><span class="field-type">bool</span></td><td class="field-default">true</td><td class="field-desc">循环检测开关</td></tr>
+              <tr><td class="field-name">warn_threshold</td><td><span class="field-type">int</span></td><td class="field-default">3</td><td class="field-desc">连续相同调用达到此数时警告</td></tr>
+              <tr><td class="field-name">hard_limit</td><td><span class="field-type">int</span></td><td class="field-default">5</td><td class="field-desc">达到此数时强制终止循环</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="feat-sum" class="tab-panel">
+        <div class="config-block">
+          <div class="block-header"><h3>summarization — 自动摘要</h3><code>summarization:</code></div>
+          <table>
+            <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td class="field-name">enabled</td><td><span class="field-type">bool</span></td><td class="field-default">true</td><td class="field-desc">自动摘要开关</td></tr>
+              <tr><td class="field-name">trigger</td><td><span class="field-type">array</span></td><td class="field-default">tokens: 15564</td><td class="field-desc">触发条件数组，支持 tokens 类型阈值</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="feat-title" class="tab-panel">
+        <div class="config-block">
+          <div class="block-header"><h3>title — 标题生成</h3><code>title:</code></div>
+          <table>
+            <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td class="field-name">enabled</td><td><span class="field-type">bool</span></td><td class="field-default">true</td><td class="field-desc">自动生成会话标题</td></tr>
+              <tr><td class="field-name">max_words</td><td><span class="field-type">int</span></td><td class="field-default">6</td><td class="field-desc">标题最大词数</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="feat-skill" class="tab-panel">
+        <div class="config-block">
+          <div class="block-header"><h3>skills — 技能路径</h3><code>skills:</code></div>
+          <table>
+            <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td class="field-name">path</td><td><span class="field-type">string</span></td><td class="field-default">(内置)</td><td class="field-desc">自定义技能目录路径</td></tr>
+              <tr><td class="field-name">container_path</td><td><span class="field-type">string</span></td><td class="field-default">/mnt/skills</td><td class="field-desc">Docker 容器内技能挂载路径</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="config-block">
+          <div class="block-header"><h3>circuit_breaker — 熔断器</h3><code>circuit_breaker:</code></div>
+          <table>
+            <thead><tr><th>字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td class="field-name">failure_threshold</td><td><span class="field-type">int</span></td><td class="field-default">5</td><td class="field-desc">连续失败次数达到此值时熔断</td></tr>
+              <tr><td class="field-name">recovery_timeout_sec</td><td><span class="field-type">int</span></td><td class="field-default">60</td><td class="field-desc">熔断恢复等待时间（秒）</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 10. Environment Variables -->
+    <div class="section" id="env">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(245,158,11,0.15);">🔑</div>
+        <h2>环境变量清单</h2>
+        <p>在 config.yaml 中用 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--accent-orange);">$VAR_NAME</code> 引用</p>
+      </div>
+      <div class="env-grid">
+        <div class="env-card"><div class="env-name">$OPENAI_API_KEY</div><div class="env-desc">OpenAI API 密钥</div><div class="env-example">sk-...</div></div>
+        <div class="env-card"><div class="env-name">$ANTHROPIC_API_KEY</div><div class="env-desc">Anthropic Claude API 密钥</div><div class="env-example">sk-ant-...</div></div>
+        <div class="env-card"><div class="env-name">$DEEPSEEK_API_KEY</div><div class="env-desc">DeepSeek API 密钥</div><div class="env-example">sk-...</div></div>
+        <div class="env-card"><div class="env-name">$GOOGLE_API_KEY</div><div class="env-desc">Google Gemini API 密钥</div><div class="env-example">AIza...</div></div>
+        <div class="env-card"><div class="env-name">$VOLCENGINE_API_KEY</div><div class="env-desc">火山引擎 / 豆包 API 密钥</div><div class="env-example">—</div></div>
+        <div class="env-card"><div class="env-name">$JWT_SECRET</div><div class="env-desc">JWT Token 签名密钥</div><div class="env-example">随机长字符串</div></div>
+        <div class="env-card"><div class="env-name">$DATABASE_URL</div><div class="env-desc">PostgreSQL 连接 URL</div><div class="env-example">postgresql://user:pass@host:5432/db</div></div>
+        <div class="env-card"><div class="env-name">$LANGSMITH_API_KEY</div><div class="env-desc">LangSmith 追踪 API 密钥</div><div class="env-example">lsv2_...</div></div>
+      </div>
+    </div>
+
+    <!-- 11. extensions_config.json -->
+    <div class="section" id="extensions">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(236,72,153,0.15);">🔌</div>
+        <h2>extensions_config.json — MCP 配置</h2>
+        <span class="badge badge-optional">可选</span>
+      </div>
+      <div class="config-block">
+        <div class="block-header"><h3>MCP Server 字段</h3><code>extensions_config.json → mcpServers.{name}</code></div>
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field-name">enabled</td><td><span class="field-type">bool</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">是否启用</td></tr>
+            <tr><td class="field-name">type</td><td><span class="field-type">string</span></td><td style="color:var(--accent-red);font-size:0.8rem;">必填</td><td class="field-desc">传输类型：stdio / sse / http</td></tr>
+            <tr><td class="field-name">command</td><td><span class="field-type">string</span></td><td style="color:var(--text-muted);font-size:0.8rem;">stdio 必填</td><td class="field-desc">可执行命令（type=stdio）</td></tr>
+            <tr><td class="field-name">args</td><td><span class="field-type">string[]</span></td><td style="color:var(--text-muted);font-size:0.8rem;">可选</td><td class="field-desc">命令参数</td></tr>
+            <tr><td class="field-name">url</td><td><span class="field-type">string</span></td><td style="color:var(--text-muted);font-size:0.8rem;">sse/http 必填</td><td class="field-desc">远程服务 URL</td></tr>
+            <tr><td class="field-name">env</td><td><span class="field-type">object</span></td><td style="color:var(--text-muted);font-size:0.8rem;">可选</td><td class="field-desc">环境变量注入</td></tr>
+            <tr><td class="field-name">description</td><td><span class="field-type">string</span></td><td style="color:var(--text-muted);font-size:0.8rem;">可选</td><td class="field-desc">服务描述，LLM 可见</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>🦌 DeerFlow Configuration Reference · config.yaml + extensions_config.json + Environment Variables</p>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#1a1a2e', primaryTextColor: '#e8e8f0', primaryBorderColor: '#4f8ff7', lineColor: '#666688', secondaryColor: '#2a2a4a', tertiaryColor: '#1a1a2e', fontFamily: 'Inter, sans-serif', fontSize: '13px', clusterBkg: '#12121a', clusterBorder: '#2a2a4a', titleColor: '#e8e8f0', edgeLabelBackground: '#1a1a2e' }, flowchart: { htmlLabels: true, curve: 'basis', padding: 15 } });
+    function switchTab(event, tabId) {
+      const container = event.target.closest('.section');
+      container.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      container.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+      setTimeout(() => { const panel = document.getElementById(tabId); panel.querySelectorAll('.mermaid:not([data-processed])').forEach(el => { mermaid.run({ nodes: [el] }); }); }, 100);
+    }
+  </script>
+</body>
+</html>

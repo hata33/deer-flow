@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeerFlow - 部署运维指南</title>
+  <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg-primary: #0a0a0f; --bg-secondary: #12121a; --bg-card: #1a1a2e; --border: #2a2a4a; --text-primary: #e8e8f0; --text-secondary: #9999b8; --text-muted: #666688; --accent-blue: #4f8ff7; --accent-purple: #8b5cf6; --accent-green: #22c55e; --accent-orange: #f59e0b; --accent-red: #ef4444; --accent-cyan: #06b6d4; --accent-pink: #ec4899; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.7; }
+    ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: var(--bg-primary); } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .nav-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(10,10,15,0.85); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0 2rem; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--text-primary); }
+    .nav-logo .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, #4f8ff7, #8b5cf6); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+    .nav-links { display: flex; gap: 0.25rem; } .nav-links a { padding: 0.5rem 0.75rem; border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 0.8rem; font-weight: 500; transition: all 0.2s; white-space: nowrap; } .nav-links a:hover, .nav-links a.active { background: var(--bg-card); color: var(--text-primary); }
+    .main-content { max-width: 1280px; margin: 0 auto; padding: 96px 2rem 4rem; }
+    .hero { text-align: center; padding: 2rem 0 3rem; } .hero h1 { font-size: 2.8rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 1rem; background: linear-gradient(135deg, #e8e8f0, #9999b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; } .hero p { font-size: 1.1rem; color: var(--text-secondary); max-width: 640px; margin: 0 auto; }
+    .section { margin-bottom: 3.5rem; } .section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); } .section-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; } .section-header h2 { font-size: 1.4rem; font-weight: 700; }
+    .diagram-container { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; margin-bottom: 1.5rem; overflow-x: auto; } .diagram-container pre { margin: 0; } .mermaid { display: flex; justify-content: center; }
+    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.25rem; }
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 1.75rem; transition: all 0.3s; position: relative; overflow: hidden; } .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 14px 14px 0 0; } .card:hover { border-color: rgba(79,143,247,0.3); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+    .card-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; margin-bottom: 1rem; } .card h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.5rem; } .card p { color: var(--text-secondary); font-size: 0.85rem; line-height: 1.7; }
+    .card-blue::before { background: linear-gradient(135deg, #4f8ff7, #8b5cf6); } .card-blue .card-icon { background: rgba(79,143,247,0.15); }
+    .card-green::before { background: linear-gradient(135deg, #22c55e, #06b6d4); } .card-green .card-icon { background: rgba(34,197,94,0.15); }
+    .card-orange::before { background: linear-gradient(135deg, #f59e0b, #ef4444); } .card-orange .card-icon { background: rgba(245,158,11,0.15); }
+    .card-red::before { background: linear-gradient(135deg, #ef4444, #f59e0b); } .card-red .card-icon { background: rgba(239,68,68,0.15); }
+    .card-purple::before { background: linear-gradient(135deg, #8b5cf6, #ec4899); } .card-purple .card-icon { background: rgba(139,92,246,0.15); }
+    .card-cyan::before { background: linear-gradient(135deg, #06b6d4, #22c55e); } .card-cyan .card-icon { background: rgba(6,182,212,0.15); }
+    .code-block { background: #0d0d14; border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; margin: 1rem 0; overflow-x: auto; } .code-block pre { margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; line-height: 1.75; white-space: pre; color: var(--text-secondary); }
+    .hl-key { color: var(--accent-blue); } .hl-str { color: var(--accent-green); } .hl-comment { color: var(--text-muted); font-style: italic; } .hl-var { color: var(--accent-orange); }
+    .step-flow { display: flex; flex-direction: column; } .step-item { display: flex; gap: 1.25rem; position: relative; } .step-line { width: 40px; display: flex; flex-direction: column; align-items: center; flex-shrink: 0; } .step-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; border: 2px solid; z-index: 1; } .step-connector { width: 2px; flex: 1; background: var(--border); } .step-content { flex: 1; padding-bottom: 1.5rem; } .step-content h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.25rem; } .step-content p { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
+    .faq-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 0.75rem; } .faq-item h4 { font-size: 0.9rem; font-weight: 600; color: var(--accent-orange); margin-bottom: 0.35rem; } .faq-item p { font-size: 0.85rem; color: var(--text-secondary); } .faq-item code { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; background: rgba(79,143,247,0.1); color: var(--accent-blue); padding: 0.1rem 0.35rem; border-radius: 3px; }
+    .footer { text-align: center; padding: 3rem 0; border-top: 1px solid var(--border); margin-top: 4rem; } .footer p { color: var(--text-muted); font-size: 0.8rem; }
+    @media (max-width: 768px) { .hero h1 { font-size: 2rem; } .main-content { padding: 80px 1rem 2rem; } .nav-links { display: none; } .cards-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="index.html" class="nav-logo"><span class="logo-icon">🦌</span><span>DeerFlow Deploy</span></a>
+    <div class="nav-links">
+      <a href="index.html">🏠 首页</a>
+      <a href="module-structure.html">模块</a>
+      <a href="data-flow.html">数据流</a>
+      <a href="customization-guide.html">定制化</a>
+      <a href="security-architecture.html">安全</a>
+      <a href="config-reference.html">配置</a>
+      <a href="#top" class="active">🐳 部署</a>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <div class="hero" id="top">
+      <h1>🐳 部署运维指南</h1>
+      <p>从本地开发到生产部署的完整路径：环境准备、Docker Compose、Nginx、数据库、监控、常见故障排查</p>
+    </div>
+
+    <!-- Architecture -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(79,143,247,0.15);">🏗️</div>
+        <h2>部署架构</h2>
+      </div>
+      <div class="diagram-container">
+        <pre class="mermaid">
+graph TB
+    subgraph Internet["🌐"]
+        User["👤 用户"]
+        IM["💬 IM 平台"]
+    end
+
+    subgraph Prod["🏢 生产部署"]
+        Nginx["Nginx :2026\nSSL 终止 / 反代 / 静态资源"]
+        subgraph Services["服务"]
+            API["FastAPI :8001\nAPI 网关 + Agent 运行时"]
+            FE["Next.js :3000\n前端 SSR"]
+        end
+        subgraph Data["数据层"]
+            PG["PostgreSQL\n持久化"]
+            FS["文件存储\n记忆 / 技能 / 配置"]
+        end
+        subgraph Isolation["沙箱"]
+            Docker["Docker 容器\n隔离执行"]
+        end
+    end
+
+    subgraph External["外部依赖"]
+        LLM["LLM APIs\nOpenAI / Anthropic / ..."]
+        MCP["MCP Servers\n外部工具"]
+        Trace["LangSmith / Langfuse\n链路追踪"]
+    end
+
+    User --> Nginx
+    IM --> Nginx
+    Nginx --> API & FE
+    API --> Docker & PG & FS
+    API --> LLM & MCP & Trace
+
+    style Internet fill:#0a0a0f,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style Prod fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style External fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+    </div>
+
+    <!-- Quick Start -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(34,197,94,0.15);">🚀</div>
+        <h2>快速启动</h2>
+      </div>
+      <div class="step-flow">
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 1 — 克隆仓库</h4>
+            <div class="code-block"><pre>git clone https://github.com/your-org/deer-flow.git
+cd deer-flow</pre></div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 2 — 复制配置文件</h4>
+            <div class="code-block"><pre><span class="hl-comment"># 主配置</span>
+cp config.example.yaml config.yaml
+
+<span class="hl-comment"># MCP 扩展配置</span>
+cp extensions_config.example.json extensions_config.json</pre></div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 3 — 编辑 config.yaml</h4>
+            <p>至少配置一个模型（填写 API Key）：</p>
+            <div class="code-block"><pre><span class="hl-key">models</span>:
+  - <span class="hl-key">name</span>: <span class="hl-str">gpt-4</span>
+    <span class="hl-key">use</span>: <span class="hl-str">langchain_openai:ChatOpenAI</span>
+    <span class="hl-key">model</span>: <span class="hl-str">gpt-4</span>
+    <span class="hl-key">api_key</span>: <span class="hl-var">$OPENAI_API_KEY</span>  <span class="hl-comment"># 设置环境变量</span></pre></div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 4 — 设置环境变量</h4>
+            <div class="code-block"><pre>export OPENAI_API_KEY=<span class="hl-str">"sk-your-key"</span>
+export JWT_SECRET=<span class="hl-str">"your-random-secret"</span></pre></div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector" style="background:transparent;"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 5 — 启动服务</h4>
+            <div class="code-block"><pre><span class="hl-comment"># 开发模式 (一键启动)</span>
+make dev
+
+<span class="hl-comment"># 或手动启动后端</span>
+cd backend && uv run uvicorn app.main:app --port 8001 --reload
+
+<span class="hl-comment"># 手动启动前端</span>
+cd frontend && pnpm dev</pre></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Docker Compose -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(79,143,247,0.15);">🐳</div>
+        <h2>Docker Compose 部署</h2>
+      </div>
+
+      <div class="cards-grid" style="margin-bottom:1.5rem;">
+        <div class="card card-blue">
+          <div class="card-icon">🛠️</div>
+          <h3>开发环境</h3>
+          <p><code style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--accent-blue);">docker-compose-dev.yaml</code></p>
+          <p>前后端热重载 + SQLite + Local Sandbox。适合本地开发和调试。</p>
+          <div class="code-block"><pre>docker-compose -f docker-compose-dev.yaml up -d</pre></div>
+        </div>
+        <div class="card card-green">
+          <div class="card-icon">🚀</div>
+          <h3>生产环境</h3>
+          <p><code style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--accent-blue);">docker-compose.yaml</code></p>
+          <p>Nginx 反代 + FastAPI + Next.js + PostgreSQL + Docker Sandbox。完整生产配置。</p>
+          <div class="code-block"><pre>docker-compose up -d</pre></div>
+        </div>
+      </div>
+
+      <div class="card card-purple" style="margin-bottom:1.5rem;">
+        <h3>生产 docker-compose.yaml 服务清单</h3>
+        <div class="diagram-container" style="margin-top:0.75rem;border:none;padding:0;">
+          <pre class="mermaid">
+graph LR
+    subgraph Compose["docker-compose.yaml"]
+        Nginx["nginx\n:2026\n反向代理 + SSL"]
+        API["fastapi\n:8001\nAPI 网关"]
+        FE["nextjs\n:3000\n前端 SSR"]
+        DB["postgresql\n:5432\n数据库"]
+        Docker["docker-daemon\n沙箱容器管理"]
+    end
+
+    Nginx --> API & FE
+    API --> DB & Docker
+
+    style Compose fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+          </pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Nginx -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(139,92,246,0.15);">🔄</div>
+        <h2>Nginx 反向代理</h2>
+      </div>
+      <div class="cards-grid">
+        <div class="card card-purple" style="grid-column:1/-1;">
+          <h3>核心 Nginx 配置</h3>
+          <div class="code-block"><pre><span class="hl-comment"># nginx.conf 关键配置</span>
+<span class="hl-key">server</span> {
+    <span class="hl-key">listen</span> <span class="hl-str">2026</span>;
+    <span class="hl-key">server_name</span> <span class="hl-str">your-domain.com</span>;
+
+    <span class="hl-comment"># SSL (生产推荐)</span>
+    <span class="hl-comment"># listen 443 ssl;</span>
+    <span class="hl-comment"># ssl_certificate /path/to/cert.pem;</span>
+    <span class="hl-comment"># ssl_certificate_key /path/to/key.pem;</span>
+
+    <span class="hl-comment"># 前端静态资源 / SSR</span>
+    <span class="hl-key">location</span> / {
+        <span class="hl-key">proxy_pass</span> <span class="hl-str">http://nextjs:3000</span>;
+        <span class="hl-key">proxy_set_header</span> Host $host;
+    }
+
+    <span class="hl-comment"># API 网关</span>
+    <span class="hl-key">location</span> /api/ {
+        <span class="hl-key">proxy_pass</span> <span class="hl-str">http://fastapi:8001</span>;
+        <span class="hl-key">proxy_set_header</span> Host $host;
+        <span class="hl-key">proxy_set_header</span> X-Real-IP $remote_addr;
+    }
+
+    <span class="hl-comment"># SSE 流式推送 (关键配置)</span>
+    <span class="hl-key">location</span> /api/threads/ {
+        <span class="hl-key">proxy_pass</span> <span class="hl-str">http://fastapi:8001</span>;
+        <span class="hl-key">proxy_buffering</span> <span class="hl-str">off</span>;          <span class="hl-comment"># 禁用缓冲</span>
+        <span class="hl-key">proxy_cache</span> <span class="hl-str">off</span>;              <span class="hl-comment"># 禁用缓存</span>
+        <span class="hl-key">proxy_read_timeout</span> <span class="hl-str">600s</span>;      <span class="hl-comment"># 长连接超时</span>
+        <span class="hl-key">proxy_set_header</span> Connection <span class="hl-str">''</span>;
+        <span class="hl-key">proxy_http_version</span> <span class="hl-str">1.1</span>;
+        <span class="hl-key">chunked_transfer_encoding</span> <span class="hl-str">off</span>;
+    }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Database -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(245,158,11,0.15);">💾</div>
+        <h2>数据库选型</h2>
+      </div>
+      <div class="cards-grid">
+        <div class="card card-orange">
+          <div class="card-icon">📁</div>
+          <h3>SQLite (开发)</h3>
+          <p>零配置，文件存储在 <code style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--accent-blue);">.deer-flow/data/</code>。适合单机开发和测试。无需额外容器。</p>
+          <div class="code-block"><pre><span class="hl-key">database</span>:
+  <span class="hl-key">backend</span>: <span class="hl-str">sqlite</span>
+  <span class="hl-key">sqlite_dir</span>: <span class="hl-str">.deer-flow/data</span></pre></div>
+        </div>
+        <div class="card card-green">
+          <div class="card-icon">🐘</div>
+          <h3>PostgreSQL (生产)</h3>
+          <p>推荐生产环境使用。支持并发连接、事务、JSON 查询。通过 Docker Compose 或外部 RDS 部署。</p>
+          <div class="code-block"><pre><span class="hl-key">database</span>:
+  <span class="hl-key">backend</span>: <span class="hl-str">postgresql</span>
+  <span class="hl-key">url</span>: <span class="hl-var">$DATABASE_URL</span>
+<span class="hl-comment"># postgresql://user:pass@host:5432/deerflow</span></pre></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Observability -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(6,182,212,0.15);">📊</div>
+        <h2>可观测性 — 追踪与监控</h2>
+      </div>
+      <div class="cards-grid">
+        <div class="card card-cyan">
+          <div class="card-icon">🔬</div>
+          <h3>LangSmith</h3>
+          <p>LangChain 生态原生追踪平台。可视化 Agent 执行链路、Token 消耗、工具调用详情。支持 Trace 对比和版本追踪。</p>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">🔭</div>
+          <h3>Langfuse</h3>
+          <p>开源 LLM 可观测性平台。自部署或云服务。支持 Prompt 版本管理、A/B 测试、成本分析、用户行为追踪。</p>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">📈</div>
+          <h3>内置指标</h3>
+          <p><strong>TokenUsageMiddleware</strong> 实时统计每次运行的 Token 消耗。<strong>RunJournal</strong> 记录完整事件日志。<strong>EventStore</strong> 存储运行元数据供后续分析。</p>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">⚡</div>
+          <h3>熔断器</h3>
+          <p><strong>Circuit Breaker</strong> 监控 LLM 调用失败率。连续失败达阈值自动熔断，保护后端不被持续重试拖垮。恢复超时后自动半开探测。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Troubleshooting -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(239,68,68,0.15);">🔧</div>
+        <h2>常见故障排查</h2>
+      </div>
+
+      <div class="faq-item">
+        <h4>❌ Agent 响应为空或报 LLM 调用失败</h4>
+        <p>检查 <code>config.yaml</code> 中模型 <code>api_key</code> 是否正确设置（环境变量是否生效）。确认模型 <code>use</code> 路径正确。查看 <code>log_level: debug</code> 获取详细错误日志。检查网络是否能访问 LLM API 端点。</p>
+      </div>
+
+      <div class="faq-item">
+        <h4>❌ SSE 流式推送中断 / 前端收不到实时消息</h4>
+        <p>检查 Nginx 是否配置了 <code>proxy_buffering off</code> 和 <code>proxy_cache off</code>。确认 <code>proxy_read_timeout</code> 足够长（建议 600s+）。检查 <code>proxy_http_version 1.1</code> 配置。</p>
+      </div>
+
+      <div class="faq-item">
+        <h4>❌ Docker Sandbox 无法启动 / 权限错误</h4>
+        <p>确认 Docker daemon 正在运行：<code>docker ps</code>。检查容器挂载目录权限。Docker-in-Docker 场景需挂载 <code>/var/run/docker.sock</code>。生产环境确认 <code>sandbox.use</code> 指向 DockerSandboxProvider。</p>
+      </div>
+
+      <div class="faq-item">
+        <h4>❌ 技能加载失败 / SKILL.md 解析报错</h4>
+        <p>检查 SKILL.md frontmatter 格式（<code>name</code> 和 <code>description</code> 为必填字段）。YAML 语法错误会导致解析失败。安全扫描可能阻止了加载，检查 <code>log_level: debug</code> 中的扫描结果。</p>
+      </div>
+
+      <div class="faq-item">
+        <h4>❌ Agent 陷入循环 / Token 消耗异常</h4>
+        <p>检查 <code>loop_detection</code> 是否启用。调整 <code>hard_limit</code>（默认 5）到更低值。检查 Prompt 是否给了 Agent 明确的停止条件。启用 Langfuse 追踪分析循环原因。</p>
+      </div>
+
+      <div class="faq-item">
+        <h4>❌ 数据库连接失败</h4>
+        <p>SQLite: 确认 <code>sqlite_dir</code> 路径可写。PostgreSQL: 确认 <code>$DATABASE_URL</code> 正确，数据库已创建，用户有读写权限。Docker Compose 场景确认数据库容器健康：<code>docker-compose ps</code>。</p>
+      </div>
+
+      <div class="faq-item">
+        <h4>❌ MCP Server 连接失败</h4>
+        <p>检查 <code>extensions_config.json</code> 中 <code>enabled</code> 是否为 true。stdio 类型确认命令路径正确。sse/http 类型确认 URL 可达。检查 <code>env</code> 中的环境变量是否设置。</p>
+      </div>
+
+      <div class="faq-item">
+        <h4>❌ JWT 认证失败 / 401 错误</h4>
+        <p>确认 <code>$JWT_SECRET</code> 在前后端一致。检查 Token 是否过期。前端确认 Token 存储和发送逻辑正确。CORS 配置确认允许前端域名。</p>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>🦌 DeerFlow Deployment Guide · Docker Compose · Nginx · Observability · Troubleshooting</p>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#1a1a2e', primaryTextColor: '#e8e8f0', primaryBorderColor: '#4f8ff7', lineColor: '#666688', secondaryColor: '#2a2a4a', tertiaryColor: '#1a1a2e', fontFamily: 'Inter, sans-serif', fontSize: '13px', clusterBkg: '#12121a', clusterBorder: '#2a2a4a', titleColor: '#e8e8f0', edgeLabelBackground: '#1a1a2e' }, flowchart: { htmlLabels: true, curve: 'basis', padding: 15 } });
+  </script>
+</body>
+</html>

@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeerFlow - 安全架构</title>
+  <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #0a0a0f; --bg-secondary: #12121a; --bg-card: #1a1a2e;
+      --border: #2a2a4a; --text-primary: #e8e8f0; --text-secondary: #9999b8;
+      --text-muted: #666688; --accent-blue: #4f8ff7; --accent-purple: #8b5cf6;
+      --accent-green: #22c55e; --accent-orange: #f59e0b; --accent-red: #ef4444;
+      --accent-cyan: #06b6d4; --accent-pink: #ec4899;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.7; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .nav-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(10,10,15,0.85); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0 2rem; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--text-primary); }
+    .nav-logo .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, #4f8ff7, #8b5cf6); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+    .nav-links { display: flex; gap: 0.25rem; }
+    .nav-links a { padding: 0.5rem 0.75rem; border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 0.8rem; font-weight: 500; transition: all 0.2s; white-space: nowrap; }
+    .nav-links a:hover, .nav-links a.active { background: var(--bg-card); color: var(--text-primary); }
+
+    .main-content { max-width: 1280px; margin: 0 auto; padding: 96px 2rem 4rem; }
+    .hero { text-align: center; padding: 2rem 0 3rem; position: relative; }
+    .hero::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 500px; height: 400px; background: radial-gradient(ellipse, rgba(239,68,68,0.06), transparent 70%); pointer-events: none; }
+    .hero h1 { font-size: 2.8rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 1rem; background: linear-gradient(135deg, #e8e8f0, #9999b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero p { font-size: 1.1rem; color: var(--text-secondary); max-width: 640px; margin: 0 auto; }
+
+    .section { margin-bottom: 3.5rem; }
+    .section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .section-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+    .section-header h2 { font-size: 1.4rem; font-weight: 700; }
+
+    .diagram-container { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; margin-bottom: 1.5rem; overflow-x: auto; }
+    .diagram-container pre { margin: 0; }
+    .mermaid { display: flex; justify-content: center; }
+
+    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.25rem; }
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 1.75rem; transition: all 0.3s; position: relative; overflow: hidden; }
+    .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 14px 14px 0 0; }
+    .card:hover { border-color: rgba(239,68,68,0.3); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+    .card-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; margin-bottom: 1rem; }
+    .card h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .card p { color: var(--text-secondary); font-size: 0.85rem; line-height: 1.7; }
+
+    .card-red::before { background: linear-gradient(135deg, #ef4444, #f59e0b); }
+    .card-red .card-icon { background: rgba(239,68,68,0.15); }
+    .card-orange::before { background: linear-gradient(135deg, #f59e0b, #22c55e); }
+    .card-orange .card-icon { background: rgba(245,158,11,0.15); }
+    .card-purple::before { background: linear-gradient(135deg, #8b5cf6, #4f8ff7); }
+    .card-purple .card-icon { background: rgba(139,92,246,0.15); }
+    .card-cyan::before { background: linear-gradient(135deg, #06b6d4, #22c55e); }
+    .card-cyan .card-icon { background: rgba(6,182,212,0.15); }
+
+    .code-block { background: #0d0d14; border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; margin: 1rem 0; overflow-x: auto; }
+    .code-block pre { margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; line-height: 1.75; white-space: pre; color: var(--text-secondary); }
+    .code-block .code-lang { position: absolute; top: 0.5rem; right: 0.75rem; font-size: 0.65rem; color: var(--text-muted); background: var(--bg-card); padding: 0.15rem 0.5rem; border-radius: 4px; }
+    .hl-key { color: var(--accent-blue); }
+    .hl-str { color: var(--accent-green); }
+    .hl-comment { color: var(--text-muted); font-style: italic; }
+    .hl-var { color: var(--accent-orange); }
+    .hl-warn { color: var(--accent-red); }
+
+    /* Threat model table */
+    .threat-table { width: 100%; border-collapse: collapse; background: var(--bg-card); border-radius: 14px; overflow: hidden; border: 1px solid var(--border); }
+    .threat-table th { background: var(--bg-secondary); padding: 0.85rem 1.25rem; text-align: left; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--border); }
+    .threat-table td { padding: 0.75rem 1.25rem; border-bottom: 1px solid rgba(42,42,74,0.5); font-size: 0.85rem; }
+    .threat-table tr:last-child td { border-bottom: none; }
+    .threat-table tr:hover td { background: rgba(239,68,68,0.03); }
+    .threat-level { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 6px; }
+    .level-high { background: rgba(239,68,68,0.15); color: var(--accent-red); }
+    .level-mid { background: rgba(245,158,11,0.15); color: var(--accent-orange); }
+    .level-low { background: rgba(34,197,94,0.15); color: var(--accent-green); }
+
+    .footer { text-align: center; padding: 3rem 0; border-top: 1px solid var(--border); margin-top: 4rem; }
+    .footer p { color: var(--text-muted); font-size: 0.8rem; }
+    @media (max-width: 768px) { .hero h1 { font-size: 2rem; } .main-content { padding: 80px 1rem 2rem; } .nav-links { display: none; } .cards-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="index.html" class="nav-logo"><span class="logo-icon">🦌</span><span>DeerFlow Security</span></a>
+    <div class="nav-links">
+      <a href="index.html">🏠 首页</a>
+      <a href="module-structure.html">模块</a>
+      <a href="data-flow.html">数据流</a>
+      <a href="customization-guide.html">定制化</a>
+      <a href="#top" class="active">🔒 安全</a>
+      <a href="config-reference.html">配置</a>
+      <a href="deployment-guide.html">部署</a>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <div class="hero" id="top">
+      <h1>🔒 安全架构</h1>
+      <p>从网络入口到代码执行的全链路安全防护体系：认证、策略、沙箱、审计、扫描五层纵深防御</p>
+    </div>
+
+    <!-- Security Overview -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(239,68,68,0.15);">🛡️</div>
+        <h2>安全防御全景</h2>
+      </div>
+      <div class="diagram-container">
+        <pre class="mermaid">
+graph TB
+    subgraph L1["L1 - 网络层"]
+        Nginx["Nginx\nSSL/TLS 终止"]
+    end
+
+    subgraph L2["L2 - 认证层"]
+        CORS["CORS\n跨域策略"]
+        CSRF["CSRF Token\n跨站请求保护"]
+        JWT["JWT Token\n身份认证"]
+    end
+
+    subgraph L3["L3 - 策略层"]
+        Guardrail["GuardrailMiddleware\nAllow/Deny 工具策略"]
+        ToolFilter["DeferredToolFilter\n工具白名单"]
+    end
+
+    subgraph L4["L4 - 执行层"]
+        Audit["SandboxAuditMiddleware\nBash 命令审计"]
+        LocalSB["Local Sandbox\n路径映射 + 输出遮蔽"]
+        DockerSB["Docker Sandbox\n容器隔离"]
+    end
+
+    subgraph L5["L5 - 扫描层"]
+        SkillScan["Skill Security Scan\nSKILL.md 注入检测"]
+        Loop["LoopDetection\n无限循环防护"]
+    end
+
+    L1 --> L2 --> L3 --> L4 --> L5
+
+    style L1 fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style L2 fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px,color:#e8e8f0
+    style L3 fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style L4 fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+    style L5 fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+    </div>
+
+    <!-- Threat Model -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(245,158,11,0.15);">🎯</div>
+        <h2>威胁模型与防护</h2>
+      </div>
+      <table class="threat-table">
+        <thead><tr><th>威胁</th><th>风险</th><th>防护层</th><th>机制</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>未授权 API 访问</td>
+            <td><span class="threat-level level-high">🔴 高</span></td>
+            <td>L2 认证层</td>
+            <td>JWT Token 签发/验证，Token 过期自动失效</td>
+          </tr>
+          <tr>
+            <td>跨站请求伪造</td>
+            <td><span class="threat-level level-high">🔴 高</span></td>
+            <td>L2 认证层</td>
+            <td>CSRF Token 双重提交校验</td>
+          </tr>
+          <tr>
+            <td>恶意工具调用</td>
+            <td><span class="threat-level level-high">🔴 高</span></td>
+            <td>L3 策略层</td>
+            <td>Guardrail Allow/Deny 规则，工具白名单过滤</td>
+          </tr>
+          <tr>
+            <td>路径遍历攻击</td>
+            <td><span class="threat-level level-high">🔴 高</span></td>
+            <td>L4 执行层</td>
+            <td>虚拟文件系统 /mnt/ 前缀，路径映射 + 输出遮蔽</td>
+          </tr>
+          <tr>
+            <td>危险 Bash 命令</td>
+            <td><span class="threat-level level-mid">🟡 中</span></td>
+            <td>L4 执行层</td>
+            <td>SandboxAuditMiddleware 命令审计和过滤</td>
+          </tr>
+          <tr>
+            <td>SKILL.md 注入攻击</td>
+            <td><span class="threat-level level-mid">🟡 中</span></td>
+            <td>L5 扫描层</td>
+            <td>LLM 模型扫描 Prompt 注入、角色覆盖、权限提升</td>
+          </tr>
+          <tr>
+            <td>Agent 无限循环</td>
+            <td><span class="threat-level level-mid">🟡 中</span></td>
+            <td>L5 扫描层</td>
+            <td>LoopDetection 连续重复调用检测，达到 hard_limit 强制终止</td>
+          </tr>
+          <tr>
+            <td>Token 消耗攻击</td>
+            <td><span class="threat-level level-low">🟢 低</span></td>
+            <td>运行时</td>
+            <td>TokenUsageMiddleware 实时统计，Summarization 自动压缩</td>
+          </tr>
+          <tr>
+            <td>LLM 服务雪崩</td>
+            <td><span class="threat-level level-low">🟢 低</span></td>
+            <td>运行时</td>
+            <td>Circuit Breaker 熔断器，连续失败自动熔断 + 恢复</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- L2: Auth -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(6,182,212,0.15);">🔐</div>
+        <h2>L2 认证层 — JWT + CSRF</h2>
+      </div>
+      <div class="diagram-container">
+        <pre class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant CORS as CORS
+    participant CSRF as CSRF
+    participant JWT as JWT Auth
+    participant API as API Handler
+
+    C->>CORS: 1. Origin 检查
+    CORS-->>CSRF: 通过
+    CSRF->>CSRF: 2. CSRF Token 校验
+    CSRF-->>JWT: 通过
+    JWT->>JWT: 3. Token 解签/验证
+    JWT-->>API: 认证通过 + user_id
+    API->>API: 4. 权限校验
+        </pre>
+      </div>
+      <div class="cards-grid">
+        <div class="card card-red">
+          <div class="card-icon">🔑</div>
+          <h3>JWT Token</h3>
+          <p>签发带 user_id 的 JWT Token。每次请求验证签名和过期时间。支持多用户会话管理，Token 过期自动失效需重新登录。</p>
+        </div>
+        <div class="card card-red">
+          <div class="card-icon">🛡️</div>
+          <h3>CSRF 保护</h3>
+          <p>双重提交 CSRF Token 机制。前端从 Cookie 提取 Token，在请求 Header 中携带。服务端比对 Cookie 和 Header 中的 Token 一致性。</p>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🌐</div>
+          <h3>CORS 策略</h3>
+          <p>配置允许的 Origin 白名单。生产环境仅开放前端域名，开发环境支持 localhost。Nginx 层 + FastAPI 层双重 CORS 检查。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- L3: Guardrail -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(139,92,246,0.15);">🛡️</div>
+        <h2>L3 策略层 — Guardrail + 工具过滤</h2>
+      </div>
+      <div class="diagram-container">
+        <pre class="mermaid">
+graph LR
+    ToolCall["工具调用请求"] --> Guardrail["GuardrailMiddleware\nAllow/Deny 检查"]
+    Guardrail -->|允许| ToolFilter["DeferredToolFilter\n白名单校验"]
+    Guardrail -->|拒绝| Block["❌ 阻止执行"]
+    ToolFilter -->|在白名单| Execute["⚙️ 执行工具"]
+    ToolFilter -->|不在白名单| Block2["❌ 阻止执行"]
+
+    style Guardrail fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+    style ToolFilter fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style Block fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+    style Block2 fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+    style Execute fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+      <div class="cards-grid">
+        <div class="card card-purple">
+          <div class="card-icon">🚫</div>
+          <h3>GuardrailMiddleware</h3>
+          <p>全局工具策略中间件。通过 config.yaml 配置 AllowlistProvider 或自定义 Provider，定义 allowed/denied 工具列表。每个工具调用前检查。</p>
+          <div class="code-block"><pre><span class="hl-comment"># config.yaml</span>
+<span class="hl-key">guardrails</span>:
+  <span class="hl-key">enabled</span>: <span class="hl-str">true</span>
+  <span class="hl-key">provider</span>:
+    <span class="hl-key">use</span>: <span class="hl-str">...AllowlistProvider</span>
+    <span class="hl-key">config</span>:
+      <span class="hl-key">denied_tools</span>: [<span class="hl-str">"bash"</span>]</pre></div>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">📋</div>
+          <h3>DeferredToolFilter</h3>
+          <p>SKILL.md 中的 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--accent-blue);">allowed-tools</code> 字段创建工具白名单。一旦任何技能声明了限制，则进入白名单模式，只能使用列出的工具。不可通过嵌套技能降级权限。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- L4: Sandbox -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(239,68,68,0.15);">🔒</div>
+        <h2>L4 执行层 — 沙箱隔离 + 命令审计</h2>
+      </div>
+      <div class="diagram-container">
+        <pre class="mermaid">
+graph TB
+    subgraph Host["宿主机"]
+        Agent["Agent 工具调用"]
+    end
+
+    subgraph LocalSB["Local Sandbox"]
+        PathMap["路径映射\n/mnt/ → 实际路径"]
+        Mask["输出遮蔽\n敏感路径替换"]
+    end
+
+    subgraph DockerSB["Docker Sandbox"]
+        Container["隔离容器\n独立文件系统"]
+        VFS["虚拟 /mnt/\n沙箱专用挂载"]
+    end
+
+    Agent -->|Local| LocalSB
+    Agent -->|Docker| DockerSB
+    PathMap --> Mask
+    Container --> VFS
+
+    style Host fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style LocalSB fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style DockerSB fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+      <div class="cards-grid">
+        <div class="card card-red">
+          <div class="card-icon">🏠</div>
+          <h3>Local Sandbox 路径映射</h3>
+          <p>Agent 看到的路径以 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--accent-blue);">/mnt/</code> 开头，底层映射到宿主机真实目录。文件操作被限制在映射范围内，防止路径遍历到 /etc/passwd 等敏感文件。</p>
+        </div>
+        <div class="card card-red">
+          <div class="card-icon">🐳</div>
+          <h3>Docker Sandbox 容器隔离</h3>
+          <p>每次执行在独立 Docker 容器中进行。容器有独立文件系统和网络命名空间。/mnt/ 挂载点映射到工作目录。容器生命周期自动管理。</p>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🔍</div>
+          <h3>SandboxAuditMiddleware</h3>
+          <p>Bash 命令审计中间件。在执行前检查命令内容，过滤危险操作（如 rm -rf /）。记录命令执行日志用于安全审计和事后追溯。</p>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">🎭</div>
+          <h3>输出遮蔽</h3>
+          <p>工具返回结果中的敏感路径（如宿主机真实路径）自动替换为沙箱虚拟路径。防止 Agent 通过返回值推断宿主机目录结构。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- L5: Skill Scan -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(245,158,11,0.15);">🔎</div>
+        <h2>L5 扫描层 — SKILL.md 安全扫描 + 循环防护</h2>
+      </div>
+      <div class="diagram-container">
+        <pre class="mermaid">
+graph LR
+    SKILL["SKILL.md 文件"] --> Scan["安全扫描\nLLM 模型检测"]
+    Scan -->|安全| Load["✅ 加载技能"]
+    Scan -->|可疑| Warn["⚠️ 警告 / 阻止"]
+    Scan -->|失败| Block["❌ 保守阻止"]
+
+    subgraph Checks["检测项目"]
+        C1["Prompt 注入"]
+        C2["系统角色覆盖"]
+        C3["权限提升"]
+        C4["数据泄露"]
+    end
+
+    Scan --- Checks
+
+    style SKILL fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style Scan fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style Load fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style Warn fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style Block fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+      <div class="cards-grid">
+        <div class="card card-orange">
+          <div class="card-icon">🛡️</div>
+          <h3>SKILL.md 安全扫描</h3>
+          <p>使用可配置的 LLM 模型对 SKILL.md 内容进行安全扫描。检测四大类威胁：Prompt 注入、系统角色覆盖尝试、权限提升指令、数据外泄通道。</p>
+          <p style="margin-top:0.5rem;">决策模式：<strong>allow</strong> (通过) / <strong>warn</strong> (警告但加载) / <strong>block</strong> (阻止加载)。扫描失败时采用保守策略直接阻止。</p>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🔁</div>
+          <h3>LoopDetection 循环防护</h3>
+          <p>检测 Agent 是否陷入无限循环（连续重复相同的工具调用）。达到 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--accent-blue);">warn_threshold</code> 时发出警告，达到 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--accent-blue);">hard_limit</code> 时强制终止执行，防止 Token 消耗耗尽。</p>
+          <div class="code-block"><pre><span class="hl-comment"># config.yaml</span>
+<span class="hl-key">loop_detection</span>:
+  <span class="hl-key">enabled</span>: <span class="hl-str">true</span>
+  <span class="hl-key">warn_threshold</span>: <span class="hl-str">3</span>  <span class="hl-comment"># 连续 3 次相同调用 → 警告</span>
+  <span class="hl-key">hard_limit</span>: <span class="hl-str">5</span>      <span class="hl-comment"># 连续 5 次 → 强制终止</span></pre></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security Best Practices -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(34,197,94,0.15);">✅</div>
+        <h2>安全最佳实践</h2>
+      </div>
+      <div class="cards-grid">
+        <div class="card card-cyan">
+          <div class="card-icon">🔑</div>
+          <h3>密钥管理</h3>
+          <p>永远不要将 API Key 硬编码在 config.yaml 中。使用 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--accent-orange);">$ENV_VAR</code> 引用环境变量。生产环境使用密钥管理服务（如 Vault / AWS Secrets Manager）。</p>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">🐳</div>
+          <h3>生产用 Docker 沙箱</h3>
+          <p>生产环境务必使用 Docker Sandbox Provider。Local Sandbox 仅适合开发调试。配置 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;">allow_host_bash: false</code> 禁止直接宿主机执行。</p>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">🛡️</div>
+          <h3>启用 Guardrail</h3>
+          <p>对涉及敏感操作的 Agent，启用 Guardrail 并配置 denied_tools 列表。对技能使用 allowed-tools 白名单限制可用工具范围。</p>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">📊</div>
+          <h3>监控与审计</h3>
+          <p>启用 LangSmith/Langfuse 追踪，监控异常 Token 消耗模式。定期审查 SandboxAudit 日志。设置 Token 预算上限。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>🦌 DeerFlow Security Architecture · 5-Layer Defense in Depth</p>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#1a1a2e', primaryTextColor: '#e8e8f0', primaryBorderColor: '#4f8ff7', lineColor: '#666688', secondaryColor: '#2a2a4a', tertiaryColor: '#1a1a2e', fontFamily: 'Inter, sans-serif', fontSize: '13px', clusterBkg: '#12121a', clusterBorder: '#2a2a4a', titleColor: '#e8e8f0', edgeLabelBackground: '#1a1a2e' }, flowchart: { htmlLabels: true, curve: 'basis', padding: 15 }, sequence: { actorMargin: 50, messageMargin: 35, mirrorActors: false } });
+  </script>
+</body>
+</html>

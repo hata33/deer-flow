@@ -221,6 +221,20 @@
     .nav-card.card-4 .card-icon { background: rgba(139,92,246,0.15); }
     .nav-card.card-4:hover { border-color: rgba(139,92,246,0.4); }
 
+    .nav-card.card-5::before { background: linear-gradient(135deg, #ef4444, #f59e0b); }
+    .nav-card.card-5 .card-icon { background: rgba(239,68,68,0.15); }
+    .nav-card.card-5:hover { border-color: rgba(239,68,68,0.4); }
+
+    .nav-card.card-6::before { background: linear-gradient(135deg, #06b6d4, #4f8ff7); }
+    .nav-card.card-6 .card-icon { background: rgba(6,182,212,0.15); }
+    .nav-card.card-6:hover { border-color: rgba(6,182,212,0.4); }
+
+    .nav-card.card-7::before { background: linear-gradient(135deg, #22c55e, #06b6d4); }
+    .nav-card.card-7 .card-icon { background: rgba(34,197,94,0.15); }
+    .nav-card.card-7:hover { border-color: rgba(34,197,94,0.4); }
+
+    .nav-cards { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+
     .tech-strip {
       margin-top: 4rem;
       padding: 1.5rem 2rem;
@@ -348,6 +362,52 @@
           <span class="card-tag">Skills</span>
           <span class="card-tag">Case Study</span>
           <span class="card-tag">config.yaml</span>
+        </div>
+        <span class="card-arrow">→</span>
+      </a>
+
+      <a href="security-architecture.html" class="nav-card card-5">
+        <div class="card-header">
+          <div class="card-icon">🔒</div>
+          <span class="card-num">DOC 05</span>
+        </div>
+        <h3>安全架构</h3>
+        <p class="card-desc">五层纵深防御：JWT/CSRF 认证、Guardrail 策略、Sandbox 隔离、命令审计、SKILL.md 安全扫描</p>
+        <div class="card-tags">
+          <span class="card-tag">5-Layer Defense</span>
+          <span class="card-tag">JWT</span>
+          <span class="card-tag">Sandbox</span>
+          <span class="card-tag">Guardrail</span>
+        </div>
+        <span class="card-arrow">→</span>
+      </a>
+
+      <a href="config-reference.html" class="nav-card card-6">
+        <div class="card-header">
+          <div class="card-icon">⚙️</div>
+          <span class="card-num">DOC 06</span>
+        </div>
+        <h3>配置参考手册</h3>
+        <p class="card-desc">config.yaml 全字段解析 + extensions_config.json + 环境变量清单，含类型、默认值、必填标记</p>
+        <div class="card-tags">
+          <span class="card-tag">config.yaml</span>
+          <span class="card-tag">Full Reference</span>
+          <span class="card-tag">Env Vars</span>
+        </div>
+        <span class="card-arrow">→</span>
+      </a>
+
+      <a href="deployment-guide.html" class="nav-card card-7">
+        <div class="card-header">
+          <div class="card-icon">🐳</div>
+          <span class="card-num">DOC 07</span>
+        </div>
+        <h3>部署运维指南</h3>
+        <p class="card-desc">Docker Compose 生产/开发环境、Nginx 反代配置、数据库选型、监控接入、8 条常见故障排查</p>
+        <div class="card-tags">
+          <span class="card-tag">Docker</span>
+          <span class="card-tag">Nginx</span>
+          <span class="card-tag">Troubleshooting</span>
         </div>
         <span class="card-arrow">→</span>
       </a>
