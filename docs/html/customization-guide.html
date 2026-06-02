@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeerFlow - 定制化操作地图</title>
+  <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #0a0a0f; --bg-secondary: #12121a; --bg-card: #1a1a2e;
+      --border: #2a2a4a; --text-primary: #e8e8f0; --text-secondary: #9999b8;
+      --text-muted: #666688; --accent-blue: #4f8ff7; --accent-purple: #8b5cf6;
+      --accent-green: #22c55e; --accent-orange: #f59e0b; --accent-red: #ef4444;
+      --accent-cyan: #06b6d4; --accent-pink: #ec4899;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.7; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* Nav */
+    .nav-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(10,10,15,0.85); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0 2rem; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--text-primary); }
+    .nav-logo .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, #4f8ff7, #8b5cf6); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+    .nav-links { display: flex; gap: 0.25rem; }
+    .nav-links a { padding: 0.5rem 1rem; border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 0.875rem; font-weight: 500; transition: all 0.2s; }
+    .nav-links a:hover, .nav-links a.active { background: var(--bg-card); color: var(--text-primary); }
+
+    .main-content { max-width: 1280px; margin: 0 auto; padding: 96px 2rem 4rem; }
+
+    /* Hero */
+    .hero { text-align: center; padding: 2rem 0 3rem; position: relative; }
+    .hero::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 600px; height: 400px; background: radial-gradient(ellipse, rgba(139,92,246,0.06), transparent 70%); pointer-events: none; }
+    .hero h1 { font-size: 3rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.15; margin-bottom: 1rem; background: linear-gradient(135deg, #e8e8f0, #9999b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero p { font-size: 1.15rem; color: var(--text-secondary); max-width: 640px; margin: 0 auto; line-height: 1.8; }
+
+    /* Section */
+    .section { margin-bottom: 4rem; }
+    .section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .section-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+    .section-header h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .section-header p { color: var(--text-muted); font-size: 0.875rem; margin-left: auto; }
+
+    /* Diagram */
+    .diagram-container { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; margin-bottom: 1.5rem; overflow-x: auto; position: relative; }
+    .diagram-container .diagram-label { position: absolute; top: 1rem; right: 1rem; font-size: 0.7rem; color: var(--text-muted); background: var(--bg-card); padding: 0.25rem 0.75rem; border-radius: 6px; font-family: 'JetBrains Mono', monospace; }
+    .diagram-container pre { margin: 0; }
+    .mermaid { display: flex; justify-content: center; }
+
+    /* Cards */
+    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.25rem; }
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 1.75rem; transition: all 0.3s ease; position: relative; overflow: hidden; }
+    .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 14px 14px 0 0; }
+    .card:hover { border-color: rgba(79,143,247,0.3); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+    .card-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; margin-bottom: 1rem; }
+    .card h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .card p { color: var(--text-secondary); font-size: 0.875rem; line-height: 1.7; }
+    .card .card-path { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 0.4rem 0.6rem; border-radius: 6px; margin-top: 0.75rem; display: inline-block; }
+    .card .tech-tags { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 1rem; }
+    .tech-tag { font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 6px; background: rgba(255,255,255,0.05); color: var(--text-muted); font-family: 'JetBrains Mono', monospace; border: 1px solid rgba(255,255,255,0.05); }
+    .tag-config { background: rgba(34,197,94,0.1); color: var(--accent-green); border-color: rgba(34,197,94,0.2); }
+    .tag-code { background: rgba(139,92,246,0.1); color: var(--accent-purple); border-color: rgba(139,92,246,0.2); }
+    .tag-file { background: rgba(245,158,11,0.1); color: var(--accent-orange); border-color: rgba(245,158,11,0.2); }
+
+    .card-blue::before { background: linear-gradient(135deg, #4f8ff7, #8b5cf6); }
+    .card-blue .card-icon { background: rgba(79,143,247,0.15); }
+    .card-green::before { background: linear-gradient(135deg, #22c55e, #06b6d4); }
+    .card-green .card-icon { background: rgba(34,197,94,0.15); }
+    .card-orange::before { background: linear-gradient(135deg, #f59e0b, #ef4444); }
+    .card-orange .card-icon { background: rgba(245,158,11,0.15); }
+    .card-purple::before { background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+    .card-purple .card-icon { background: rgba(139,92,246,0.15); }
+    .card-cyan::before { background: linear-gradient(135deg, #06b6d4, #22c55e); }
+    .card-cyan .card-icon { background: rgba(6,182,212,0.15); }
+    .card-red::before { background: linear-gradient(135deg, #ef4444, #f59e0b); }
+    .card-red .card-icon { background: rgba(239,68,68,0.15); }
+    .card-pink::before { background: linear-gradient(135deg, #ec4899, #8b5cf6); }
+    .card-pink .card-icon { background: rgba(236,72,153,0.15); }
+
+    /* Code Block */
+    .code-block { background: #0d0d14; border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; margin: 1rem 0; overflow-x: auto; position: relative; }
+    .code-block pre { margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; line-height: 1.75; white-space: pre; color: var(--text-secondary); }
+    .code-block .code-lang { position: absolute; top: 0.5rem; right: 0.75rem; font-size: 0.65rem; color: var(--text-muted); background: var(--bg-card); padding: 0.15rem 0.5rem; border-radius: 4px; font-family: 'JetBrains Mono', monospace; }
+    .code-block .hl-key { color: var(--accent-blue); }
+    .code-block .hl-str { color: var(--accent-green); }
+    .code-block .hl-comment { color: var(--text-muted); font-style: italic; }
+    .code-block .hl-var { color: var(--accent-orange); }
+    .code-block .hl-type { color: var(--accent-purple); }
+    .code-block .hl-fn { color: var(--accent-cyan); }
+    .code-block .hl-dec { color: var(--accent-pink); }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 0.25rem; margin-bottom: 1.5rem; padding: 0.25rem; background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border); overflow-x: auto; }
+    .tab-btn { padding: 0.625rem 1.25rem; border-radius: 10px; border: none; background: transparent; color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; white-space: nowrap; font-family: inherit; }
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active { background: var(--bg-card); color: var(--text-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Steps */
+    .step-flow { display: flex; flex-direction: column; gap: 0; }
+    .step-item { display: flex; gap: 1.25rem; position: relative; }
+    .step-line { width: 40px; display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+    .step-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; border: 2px solid; position: relative; z-index: 1; }
+    .step-connector { width: 2px; flex: 1; background: var(--border); }
+    .step-content { flex: 1; padding-bottom: 1.5rem; }
+    .step-content h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .step-content p { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
+
+    .footer { text-align: center; padding: 3rem 0; border-top: 1px solid var(--border); margin-top: 4rem; }
+    .footer p { color: var(--text-muted); font-size: 0.8rem; }
+
+    @media (max-width: 768px) { .hero h1 { font-size: 2rem; } .main-content { padding: 80px 1rem 2rem; } .nav-links { display: none; } .cards-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="index.html" class="nav-logo">
+      <span class="logo-icon">🦌</span>
+      <span>DeerFlow Customization</span>
+    </a>
+    <div class="nav-links">
+      <a href="architecture.html">🏠 架构</a>
+      <a href="module-structure.html">📦 模块</a>
+      <a href="data-flow.html">🌊 数据流</a>
+      <a href="#overview" class="active">🗺️ 操作地图</a>
+      <a href="#case">📋 实战案例</a>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <!-- Hero -->
+    <div class="hero">
+      <h1>定制化操作地图</h1>
+      <p>7 大可控扩展点，从配置文件到代码实现，完整掌控你的 Agent 行为。以"月度简报助手"为实战案例，逐步演示每个扩展点的用法。</p>
+    </div>
+
+    <!-- 1. Overview Map -->
+    <div class="section" id="overview">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(139,92,246,0.15);">🗺️</div>
+        <h2>操作地图总览</h2>
+        <p>Customization Overview</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Extension Points Map</span>
+        <pre class="mermaid">
+graph LR
+    User["👤 用户需求\n我要定制我的 Agent"]
+
+    subgraph Config["⚙️ 配置文件定制"]
+        Models["🤖 模型配置\nconfig.yaml"]
+        SubAgents["🔄 子代理\nconfig.yaml"]
+        MCP["🔌 MCP 服务\nextensions_config.json"]
+    end
+
+    subgraph Code["📝 文件定制"]
+        Prompt["💬 Prompt / SOUL.md\nskills/custom/"]
+        Skills["📦 SKILL.md\nskills/custom/"]
+    end
+
+    subgraph Dev["💻 代码定制"]
+        Middleware["🔗 中间件\nPython 类"]
+        Tools["🛠️ 自定义工具\nPython @tool"]
+    end
+
+    User --> Config & Code & Dev
+    Config --> Models & SubAgents & MCP
+    Code --> Prompt & Skills
+    Dev --> Middleware & Tools
+
+    Tools -->|"注册到"| Models
+    Skills -->|"限制"| Tools
+    SubAgents -->|"复用"| Skills
+    MCP -->|"提供"| Tools
+
+    style User fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style Config fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style Code fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style Dev fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-blue">
+          <div class="card-icon">💬</div>
+          <h3>1. Prompt / SOUL.md</h3>
+          <p>通过 SOUL.md 定义 Agent 人格与行为风格，或修改系统 Prompt 模板中的占位符</p>
+          <div class="tech-tags"><span class="tech-tag tag-file">SOUL.md</span><span class="tech-tag tag-code">prompt.py</span></div>
+          <div class="card-path">agents/lead_agent/prompt.py</div>
+        </div>
+        <div class="card card-red">
+          <div class="card-icon">🔗</div>
+          <h3>2. 中间件扩展</h3>
+          <p>继承 AgentMiddleware 基类，实现 4 个钩子函数，用 @Next/@Prev 装饰器注册位置</p>
+          <div class="tech-tags"><span class="tech-tag tag-code">Python 类</span><span class="tech-tag tag-code">4 钩子</span></div>
+          <div class="card-path">agents/factory.py → _build_middlewares()</div>
+        </div>
+        <div class="card card-green">
+          <div class="card-icon">🤖</div>
+          <h3>3. 模型配置</h3>
+          <p>在 config.yaml 中注册 LLM 模型，支持 OpenAI / Anthropic / DeepSeek / Ollama 等 15+ 供应商</p>
+          <div class="tech-tags"><span class="tech-tag tag-config">config.yaml</span><span class="tech-tag tag-config">YAML</span></div>
+          <div class="card-path">config.yaml → models:</div>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">📦</div>
+          <h3>4. Skills 技能系统</h3>
+          <p>创建 SKILL.md 声明式插件：frontmatter 定义元信息，body 定义行为指令和工具限制</p>
+          <div class="tech-tags"><span class="tech-tag tag-file">SKILL.md</span><span class="tech-tag tag-file">skills/custom/</span></div>
+          <div class="card-path">skills/custom/your-skill/SKILL.md</div>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">🛠️</div>
+          <h3>5. Tools 工具扩展</h3>
+          <p>config.yaml 声明式注册或 Python @tool 装饰器自定义，按优先级装配到工具管线</p>
+          <div class="tech-tags"><span class="tech-tag tag-config">config.yaml</span><span class="tech-tag tag-code">Python @tool</span></div>
+          <div class="card-path">config.yaml → tools: / community/</div>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">🔄</div>
+          <h3>6. 子代理 Sub-agents</h3>
+          <p>在 config.yaml 中配置子代理：自定义 system_prompt、模型覆盖、技能白名单、并发控制</p>
+          <div class="tech-tags"><span class="tech-tag tag-config">config.yaml</span><span class="tech-tag tag-config">subagents:</span></div>
+          <div class="card-path">config.yaml → subagents:</div>
+        </div>
+        <div class="card card-pink">
+          <div class="card-icon">🔌</div>
+          <h3>7. MCP 集成</h3>
+          <p>通过 extensions_config.json 配置外部 MCP Server，支持 stdio/sse/http 三种传输协议</p>
+          <div class="tech-tags"><span class="tech-tag tag-config">JSON</span><span class="tech-tag tag-config">stdio/sse/http</span></div>
+          <div class="card-path">extensions_config.json → mcpServers</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Extension Points Detail -->
+    <div class="section" id="extensions">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(79,143,247,0.15);">🔧</div>
+        <h2>扩展点详解</h2>
+        <p>Extension Points Detail</p>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab(event, 'ext-prompt')">Prompt</button>
+        <button class="tab-btn" onclick="switchTab(event, 'ext-middleware')">中间件</button>
+        <button class="tab-btn" onclick="switchTab(event, 'ext-model')">模型</button>
+        <button class="tab-btn" onclick="switchTab(event, 'ext-skill')">Skills</button>
+        <button class="tab-btn" onclick="switchTab(event, 'ext-tool')">Tools</button>
+        <button class="tab-btn" onclick="switchTab(event, 'ext-sub')">子代理</button>
+        <button class="tab-btn" onclick="switchTab(event, 'ext-mcp')">MCP</button>
+      </div>
+
+      <!-- Prompt -->
+      <div id="ext-prompt" class="tab-panel active">
+        <p style="color:var(--text-secondary);margin-bottom:1.5rem;">通过<strong>系统 Prompt 模板</strong>和<strong>SOUL.md 人格文件</strong>定制 Agent 的行为方式和沟通风格。</p>
+        <div class="cards-grid">
+          <div class="card card-blue" style="grid-column:1/-1;">
+            <h3>系统 Prompt 模板占位符</h3>
+            <p style="margin-bottom:1rem;">模板位于 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;background:rgba(79,143,247,0.1);color:var(--accent-blue);padding:0.15rem 0.4rem;border-radius:4px;">agents/lead_agent/prompt.py</code>，以下占位符会被动态替换：</p>
+            <div class="code-block"><pre><span class="hl-comment"># 系统提示词模板中的可注入占位符</span>
+<span class="hl-var">{agent_name}</span>       <span class="hl-comment"># → Agent 名称 (默认 "DeerFlow 2.0")</span>
+<span class="hl-var">{soul}</span>           <span class="hl-comment"># → SOUL.md 人格描述内容</span>
+<span class="hl-var">{skills_section}</span>  <span class="hl-comment"># → 已加载技能列表</span>
+<span class="hl-var">{subagent_section}</span><span class="hl-comment"># → 子代理系统指令</span>
+<span class="hl-var">{self_update_section}</span><span class="hl-comment"># → 自更新指令 (自定义 Agent 专属)</span></pre></div>
+          </div>
+          <div class="card card-blue" style="grid-column:1/-1;">
+            <h3>SOUL.md 人格文件</h3>
+            <p style="margin-bottom:1rem;">放在 Agent 配置目录下，定义 Agent 的个性、沟通风格和行为偏好：</p>
+            <div class="code-block"><span class="code-lang">SOUL.md</span><pre><span class="hl-comment"># 我的月度简报助手</span>
+
+<span class="hl-key">## 性格</span>
+你是一位专业的数据分析顾问，善于从海量数据中提炼关键洞察。
+
+<span class="hl-key">## 沟通风格</span>
+- 使用结构化的列表和表格呈现信息
+- 数据引用始终标注来源和时间范围
+- 结论先行，支撑数据紧随其后
+- 适当使用 emoji 标记关键指标趋势 (📈 📉 ➡️)
+
+<span class="hl-key">## 行为偏好</span>
+- 每次分析前先明确数据时间范围
+- 自动对比上月数据并计算环比变化
+- 识别异常波动时主动标注并给出可能原因</pre></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Middleware -->
+      <div id="ext-middleware" class="tab-panel">
+        <p style="color:var(--text-secondary);margin-bottom:1.5rem;">框架内置 19 个中间件，用户可继承 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;background:rgba(139,92,246,0.1);color:var(--accent-purple);padding:0.15rem 0.4rem;border-radius:4px;">AgentMiddleware</code> 添加自定义处理逻辑。</p>
+        <div class="card card-red" style="margin-bottom:1.25rem;">
+          <h3>Middleware 基类 — 4 个可实现的钩子</h3>
+          <div class="code-block"><span class="code-lang">Python</span><pre><span class="hl-key">from</span> deerflow.agents.middleware <span class="hl-key">import</span> <span class="hl-type">AgentMiddleware</span>
+<span class="hl-key">from</span> deerflow.models <span class="hl-key">import</span> <span class="hl-type">ThreadState</span>
+
+<span class="hl-key">class</span> <span class="hl-type">MyMiddleware</span>(<span class="hl-type">AgentMiddleware</span>[<span class="hl-type">ThreadState</span>]):
+    state_schema = <span class="hl-type">ThreadState</span>
+
+    <span class="hl-key">def</span> <span class="hl-fn">before_agent</span>(self, state, config):
+        <span class="hl-comment">"""Agent 执行前：上下文注入"""</span>
+        <span class="hl-key">return</span> state
+
+    <span class="hl-key">def</span> <span class="hl-fn">wrap_model_call</span>(self, state, request, config, *, call_next):
+        <span class="hl-comment">"""LLM 调用包装：错误处理/重试"""</span>
+        <span class="hl-key">return</span> call_next(state, request, config)
+
+    <span class="hl-key">def</span> <span class="hl-fn">wrap_tool_call</span>(self, state, request, config, *, call_next):
+        <span class="hl-comment">"""工具调用包装：安全审计"""</span>
+        <span class="hl-key">return</span> call_next(state, request, config)
+
+    <span class="hl-key">def</span> <span class="hl-fn">after_agent</span>(self, state, config):
+        <span class="hl-comment">"""Agent 执行后：后处理"""</span>
+        <span class="hl-key">return</span> state</pre></div>
+        </div>
+        <div class="cards-grid">
+          <div class="card card-red">
+            <h3>注册位置</h3>
+            <p>使用装饰器精确控制中间件在链中的位置：</p>
+            <div class="code-block"><span class="code-lang">Python</span><pre><span class="hl-dec">@Next</span>(<span class="hl-type">SandboxMiddleware</span>)
+<span class="hl-key">class</span> <span class="hl-type">MyMiddleware</span>(...):
+    <span class="hl-comment"># 插入到 SandboxMiddleware 之后</span>
+    ...
+
+<span class="hl-dec">@Prev</span>(<span class="hl-type">LoopDetectionMiddleware</span>)
+<span class="hl-key">class</span> <span class="hl-type">MyMiddleware</span>(...):
+    <span class="hl-comment"># 插入到 LoopDetection 之前</span>
+    ...</pre></div>
+          </div>
+          <div class="card card-red">
+            <h3>内置中间件一览 (19个)</h3>
+            <p>按执行顺序：ThreadData → Uploads → Sandbox → DanglingToolCall → Guardrail → ToolErrorHandling → LLMErrorHandling → SandboxAudit → Summarization → DynamicContext → Todo → TokenUsage → Title → Memory → ViewImage → DeferredToolFilter → SubagentLimit → LoopDetection → Clarification</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Model Config -->
+      <div id="ext-model" class="tab-panel">
+        <p style="color:var(--text-secondary);margin-bottom:1.5rem;">在 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;background:rgba(34,197,94,0.1);color:var(--accent-green);padding:0.15rem 0.4rem;border-radius:4px;">config.yaml</code> 中注册模型，支持通过环境变量安全传入 API Key。</p>
+        <div class="card card-green" style="margin-bottom:1.25rem;">
+          <h3>模型注册格式</h3>
+          <div class="code-block"><span class="code-lang">config.yaml</span><pre><span class="hl-comment"># 模型配置</span>
+<span class="hl-key">models</span>:
+  <span class="hl-comment"># OpenAI</span>
+  - <span class="hl-key">name</span>: <span class="hl-str">gpt-4</span>
+    <span class="hl-key">display_name</span>: <span class="hl-str">GPT-4</span>
+    <span class="hl-key">use</span>: <span class="hl-str">langchain_openai:ChatOpenAI</span>
+    <span class="hl-key">model</span>: <span class="hl-str">gpt-4</span>
+    <span class="hl-key">api_key</span>: <span class="hl-var">$OPENAI_API_KEY</span>
+    <span class="hl-key">temperature</span>: <span class="hl-str">0.7</span>
+    <span class="hl-key">supports_vision</span>: <span class="hl-str">true</span>
+
+  <span class="hl-comment"># Anthropic Claude</span>
+  - <span class="hl-key">name</span>: <span class="hl-str">claude-sonnet</span>
+    <span class="hl-key">use</span>: <span class="hl-str">langchain_anthropic:ChatAnthropic</span>
+    <span class="hl-key">model</span>: <span class="hl-str">claude-sonnet-4-20250514</span>
+    <span class="hl-key">api_key</span>: <span class="hl-var">$ANTHROPIC_API_KEY</span>
+
+  <span class="hl-comment"># 本地 Ollama</span>
+  - <span class="hl-key">name</span>: <span class="hl-str">local-qwen</span>
+    <span class="hl-key">use</span>: <span class="hl-str">langchain_ollama:ChatOllama</span>
+    <span class="hl-key">model</span>: <span class="hl-str">qwen3:32b</span>
+    <span class="hl-key">base_url</span>: <span class="hl-str">http://localhost:11434</span></pre></div>
+        </div>
+        <div class="cards-grid">
+          <div class="card card-green"><h3>已支持供应商</h3><p>OpenAI · Anthropic · Google Gemini · DeepSeek · Doubao/火山 · Ollama · vLLM · MiniMax · OpenRouter · Kimi · Novita AI · Qwen3 · ...</p></div>
+          <div class="card card-green"><h3>模型能力标签</h3><p><code>supports_vision</code> 图像理解 · <code>supports_thinking</code> 深度思考 · <code>when_thinking_enabled</code> 思考模式参数</p></div>
+        </div>
+      </div>
+
+      <!-- Skills -->
+      <div id="ext-skill" class="tab-panel">
+        <p style="color:var(--text-secondary);margin-bottom:1.5rem;">在 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;background:rgba(245,158,11,0.1);color:var(--accent-orange);padding:0.15rem 0.4rem;border-radius:4px;">skills/custom/</code> 下创建目录，编写 SKILL.md 即可注册新技能。</p>
+        <div class="card card-orange" style="margin-bottom:1.25rem;">
+          <h3>SKILL.md 格式</h3>
+          <div class="code-block"><span class="code-lang">SKILL.md</span><pre><span class="hl-comment">---</span>
+<span class="hl-key">name</span>: <span class="hl-str">monthly-report</span>
+<span class="hl-key">description</span>: <span class="hl-str">"月度数据分析与简报生成技能"</span>
+<span class="hl-key">allowed-tools</span>:
+  - <span class="hl-str">web_search</span>
+  - <span class="hl-str">read_file</span>
+  - <span class="hl-str">bash</span>
+<span class="hl-comment">---</span>
+
+<span class="hl-comment"># 月度简报生成技能</span>
+
+<span class="hl-key">## 工作流程</span>
+1. 从用户指定的数据源采集当月数据
+2. 对比上月数据，计算环比变化
+3. 识别关键趋势和异常指标
+4. 生成结构化简报 (摘要 + 指标表 + 趋势分析 + 建议)
+
+<span class="hl-key">## 输出格式</span>
+- 每个指标标注 📈 上升 / 📉 下降 / ➡️ 持平
+- 异常数据用 ⚠️ 标记
+- 最终以 Markdown 表格形式输出</pre></div>
+        </div>
+        <div class="diagram-container">
+          <span class="diagram-label">Skill Loading Flow</span>
+          <pre class="mermaid">
+graph LR
+    Scan["扫描 skills/\npublic/ + custom/"] --> Parse["解析 SKILL.md\nFrontmatter + Body"]
+    Parse --> Validate["Frontmatter 校验\nname / description"]
+    Validate --> Security["安全扫描\n注入检测 / 权限"]
+    Security --> Load["动态加载\n注入 Prompt + 工具"]
+    style Scan fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style Parse fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style Validate fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style Security fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+    style Load fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+          </pre>
+        </div>
+      </div>
+
+      <!-- Tools -->
+      <div id="ext-tool" class="tab-panel">
+        <p style="color:var(--text-secondary);margin-bottom:1.5rem;">两种方式注册工具：配置文件声明式 或 Python 代码自定义。</p>
+        <div class="cards-grid">
+          <div class="card card-purple">
+            <h3>方式一：config.yaml 声明式</h3>
+            <div class="code-block"><span class="code-lang">config.yaml</span><pre><span class="hl-key">tools</span>:
+  - <span class="hl-key">name</span>: <span class="hl-str">web_search</span>
+    <span class="hl-key">group</span>: <span class="hl-str">web</span>
+    <span class="hl-key">use</span>: <span class="hl-str">deerflow.community.ddg_search.tools:web_search_tool</span>
+    <span class="hl-key">max_results</span>: <span class="hl-str">5</span></pre></div>
+          </div>
+          <div class="card card-purple">
+            <h3>方式二：Python @tool 自定义</h3>
+            <div class="code-block"><span class="code-lang">Python</span><pre><span class="hl-key">from</span> langchain.tools <span class="hl-key">import</span> <span class="hl-dec">tool</span>
+
+<span class="hl-dec">@tool</span>(<span class="hl-str">"fetch_monthly_data"</span>)
+<span class="hl-key">def</span> <span class="hl-fn">fetch_monthly_data</span>(
+    <span class="hl-var">source</span>: <span class="hl-type">str</span>,
+    <span class="hl-var">month</span>: <span class="hl-type">str</span>
+) -> <span class="hl-type">str</span>:
+    <span class="hl-comment">"""获取指定数据源的月度数据"""</span>
+    <span class="hl-key">return</span> <span class="hl-fn">query_data</span>(source, month)</pre></div>
+          </div>
+        </div>
+        <div class="card card-purple" style="margin-top:1.25rem;">
+          <h3>工具装配优先级</h3>
+          <div class="diagram-container" style="margin-top:0.75rem;border:none;padding:0;">
+            <span class="diagram-label">Priority</span>
+            <pre class="mermaid">
+graph LR
+    T1["1. Config Tools\nconfig.yaml 声明"] --> T2["2. MCP Tools\nMCP Server 提供"]
+    T2 --> T3["3. Builtin Tools\n内置工具"]
+    T3 --> T4["4. SubAgent Tools\n子代理 task()"]
+    style T1 fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style T2 fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style T3 fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style T4 fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+            </pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub-agents -->
+      <div id="ext-sub" class="tab-panel">
+        <p style="color:var(--text-secondary);margin-bottom:1.5rem;">在 config.yaml 中定义子代理，可覆盖模型、限制技能、自定义 system_prompt。</p>
+        <div class="card card-cyan" style="margin-bottom:1.25rem;">
+          <h3>子代理配置格式</h3>
+          <div class="code-block"><span class="code-lang">config.yaml</span><pre><span class="hl-key">subagents</span>:
+  <span class="hl-key">timeout_seconds</span>: <span class="hl-str">900</span>
+  <span class="hl-key">agents</span>:
+    <span class="hl-comment"># 内置子代理 (可覆盖配置)</span>
+    <span class="hl-key">general-purpose</span>:
+      <span class="hl-key">timeout_seconds</span>: <span class="hl-str">1800</span>
+      <span class="hl-key">max_turns</span>: <span class="hl-str">160</span>
+      <span class="hl-key">model</span>: <span class="hl-str">qwen3:32b</span>         <span class="hl-comment"># 覆盖模型</span>
+      <span class="hl-key">skills</span>:                  <span class="hl-comment"># 技能白名单</span>
+        - <span class="hl-str">web-search</span>
+        - <span class="hl-str">data-analysis</span>
+
+  <span class="hl-comment"># 自定义子代理</span>
+  <span class="hl-key">custom_agents</span>:
+    <span class="hl-key">data-collector</span>:
+      <span class="hl-key">description</span>: <span class="hl-str">"数据采集专员"</span>
+      <span class="hl-key">system_prompt</span>: |
+        你是数据采集专员，负责从各种数据源...
+      <span class="hl-key">tools</span>:
+        - <span class="hl-str">bash</span>
+        - <span class="hl-str">read_file</span>
+      <span class="hl-key">skills</span>:
+        - <span class="hl-str">data-fetch</span>
+      <span class="hl-key">max_turns</span>: <span class="hl-str">80</span>
+      <span class="hl-key">timeout_seconds</span>: <span class="hl-str">600</span></pre></div>
+        </div>
+      </div>
+
+      <!-- MCP -->
+      <div id="ext-mcp" class="tab-panel">
+        <p style="color:var(--text-secondary);margin-bottom:1.5rem;">通过 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;background:rgba(236,72,153,0.1);color:var(--accent-pink);padding:0.15rem 0.4rem;border-radius:4px;">extensions_config.json</code> 配置外部 MCP Server，扩展工具能力。</p>
+        <div class="card card-pink" style="margin-bottom:1.25rem;">
+          <h3>MCP Server 配置格式</h3>
+          <div class="code-block"><span class="code-lang">extensions_config.json</span><pre>{
+  <span class="hl-key">"mcpServers"</span>: {
+    <span class="hl-comment">// 文件系统访问</span>
+    <span class="hl-str">"filesystem"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-var">true</span>,
+      <span class="hl-key">"type"</span>: <span class="hl-str">"stdio"</span>,
+      <span class="hl-key">"command"</span>: <span class="hl-str">"npx"</span>,
+      <span class="hl-key">"args"</span>: [<span class="hl-str">"-y"</span>, <span class="hl-str">"@modelcontextprotocol/server-filesystem"</span>,
+               <span class="hl-str">"/path/to/data"</span>]
+    },
+    <span class="hl-comment">// 数据库访问</span>
+    <span class="hl-str">"database"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-var">true</span>,
+      <span class="hl-key">"type"</span>: <span class="hl-str">"sse"</span>,
+      <span class="hl-key">"url"</span>: <span class="hl-str">"http://localhost:3001/sse"</span>,
+      <span class="hl-key">"description"</span>: <span class="hl-str">"PostgreSQL 数据库查询"</span>
+    }
+  }
+}</pre></div>
+        </div>
+        <div class="cards-grid">
+          <div class="card card-pink"><h3>传输类型</h3><p><strong>stdio</strong> — 本地子进程通信<br/><strong>sse</strong> — Server-Sent Events 远程<br/><strong>http</strong> — HTTP 请求远程</p></div>
+          <div class="card card-pink"><h3>安全机制</h3><p>OAuth 自动 Token 管理 · 刷新令牌 · 自定义 Auth Header · 拦截器注入</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Case Study -->
+    <div class="section" id="case">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(245,158,11,0.15);">📋</div>
+        <h2>实战案例：月度简报助手</h2>
+        <p>Case Study: Monthly Report Assistant</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Customization Steps</span>
+        <pre class="mermaid">
+graph TB
+    Goal["🎯 目标\n月度简报助手"]
+
+    subgraph S1["Step 1: 模型配置"]
+        Model["config.yaml\n注册擅长长文本的模型\nClaude / GPT-4"]
+    end
+
+    subgraph S2["Step 2: MCP 数据源"]
+        MCP1["extensions_config.json\nfilesystem MCP Server\ndatabase MCP Server"]
+    end
+
+    subgraph S3["Step 3: 自定义 Tools"]
+        Tool1["fetch_monthly_data\nquery_database\nexport_markdown"]
+    end
+
+    subgraph S4["Step 4: SKILL.md"]
+        Skill1["skills/custom/monthly-report/\nSKILL.md\n定义工作流 + 输出格式"]
+    end
+
+    subgraph S5["Step 5: SOUL.md 人格"]
+        Soul1["数据分析顾问人格\n结构化沟通风格\n数据标注规范"]
+    end
+
+    subgraph S6["Step 6: 子代理"]
+        Sub1["data-collector 子代理\n负责数据采集和清洗\n技能白名单限制"]
+    end
+
+    subgraph S7["Step 7: 可选中间件"]
+        MW1["SummaryMiddleware\n自动摘要长文本\nLoopDetection 防循环"]
+    end
+
+    Goal --> S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
+
+    style Goal fill:#2a1a3e,stroke:#8b5cf6,stroke-width:3px,color:#e8e8f0
+    style S1 fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style S2 fill:#331a2a,stroke:#ec4899,stroke-width:2px,color:#e8e8f0
+    style S3 fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style S4 fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style S5 fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px,color:#e8e8f0
+    style S6 fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style S7 fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <!-- Step-by-step -->
+      <div class="step-flow">
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 1 — 模型配置 config.yaml</h4>
+            <p>选择支持长上下文的模型，用于处理大量数据和生成长简报。</p>
+            <div class="code-block"><span class="code-lang">config.yaml</span><pre><span class="hl-key">models</span>:
+  - <span class="hl-key">name</span>: <span class="hl-str">report-model</span>
+    <span class="hl-key">display_name</span>: <span class="hl-str">简报生成模型</span>
+    <span class="hl-key">use</span>: <span class="hl-str">langchain_anthropic:ChatAnthropic</span>
+    <span class="hl-key">model</span>: <span class="hl-str">claude-sonnet-4-20250514</span>
+    <span class="hl-key">api_key</span>: <span class="hl-var">$ANTHROPIC_API_KEY</span>
+    <span class="hl-key">max_tokens</span>: <span class="hl-str">8192</span></pre></div>
+          </div>
+        </div>
+
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#ec4899;background:rgba(236,72,153,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#ec4899;">Step 2 — MCP 数据源 extensions_config.json</h4>
+            <p>配置文件系统和数据库 MCP Server，让 Agent 能访问业务数据。</p>
+            <div class="code-block"><span class="code-lang">extensions_config.json</span><pre>{
+  <span class="hl-key">"mcpServers"</span>: {
+    <span class="hl-str">"company-data"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-var">true</span>,
+      <span class="hl-key">"type"</span>: <span class="hl-str">"stdio"</span>,
+      <span class="hl-key">"command"</span>: <span class="hl-str">"npx"</span>,
+      <span class="hl-key">"args"</span>: [<span class="hl-str">"-y"</span>, <span class="hl-str">"@modelcontextprotocol/server-filesystem"</span>,
+               <span class="hl-str">"/data/monthly-reports"</span>],
+      <span class="hl-key">"description"</span>: <span class="hl-str">"公司月度数据目录"</span>
+    }
+  }
+}</pre></div>
+          </div>
+        </div>
+
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#4f8ff7;background:rgba(79,143,247,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#4f8ff7;">Step 3 — 自定义 Tools</h4>
+            <p>用 Python @tool 定义数据采集和导出工具，注册到 config.yaml。</p>
+            <div class="code-block"><span class="code-lang">Python</span><pre><span class="hl-dec">@tool</span>(<span class="hl-str">"fetch_monthly_data"</span>)
+<span class="hl-key">def</span> <span class="hl-fn">fetch_monthly_data</span>(<span class="hl-var">metric</span>: <span class="hl-type">str</span>, <span class="hl-var">month</span>: <span class="hl-type">str</span>) -> <span class="hl-type">str</span>:
+    <span class="hl-comment">"""获取指定指标的月度数据"""</span>
+    <span class="hl-key">return</span> <span class="hl-fn">query_database</span>(metric, month)
+
+<span class="hl-dec">@tool</span>(<span class="hl-str">"export_report"</span>)
+<span class="hl-key">def</span> <span class="hl-fn">export_report</span>(<span class="hl-var">content</span>: <span class="hl-type">str</span>, <span class="hl-var">filename</span>: <span class="hl-type">str</span>) -> <span class="hl-type">str</span>:
+    <span class="hl-comment">"""导出简报为 Markdown 文件"""</span>
+    <span class="hl-key">return</span> <span class="hl-fn">write_file</span>(filename, content)</pre></div>
+          </div>
+        </div>
+
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#f59e0b;background:rgba(245,158,11,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#f59e0b;">Step 4 — 编写 SKILL.md</h4>
+            <p>创建 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;background:rgba(245,158,11,0.1);color:var(--accent-orange);padding:0.15rem 0.4rem;border-radius:4px;">skills/custom/monthly-report/SKILL.md</code>，定义技能行为和工具限制。</p>
+            <div class="code-block"><span class="code-lang">SKILL.md</span><pre><span class="hl-comment">---</span>
+<span class="hl-key">name</span>: <span class="hl-str">monthly-report</span>
+<span class="hl-key">description</span>: <span class="hl-str">"月度数据分析与简报生成"</span>
+<span class="hl-key">allowed-tools</span>:
+  - <span class="hl-str">fetch_monthly_data</span>
+  - <span class="hl-str">export_report</span>
+  - <span class="hl-str">read_file</span>
+  - <span class="hl-str">bash</span>
+<span class="hl-comment">---</span>
+
+<span class="hl-comment"># 月度简报生成技能</span>
+
+<span class="hl-key">## 工作流程</span>
+1. 确认用户需要的指标和时间范围
+2. 使用 fetch_monthly_data 采集每个指标
+3. 对比上月数据，计算环比
+4. 识别 Top 3 增长和 Top 3 下降指标
+5. 生成结构化简报：摘要 → 指标表 → 趋势分析 → 行动建议
+6. 使用 export_report 导出文件
+
+<span class="hl-key">## 输出规范</span>
+- 📈 上升 &gt;5%  · 📉 下降 &gt;5%  · ➡️ 波动 &lt;5%
+- ⚠️ 标记异常值
+- 表格使用 Markdown 格式</pre></div>
+          </div>
+        </div>
+
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#06b6d4;background:rgba(6,182,212,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#06b6d4;">Step 5 — SOUL.md 人格定义</h4>
+            <p>创建 <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;background:rgba(6,182,212,0.1);color:var(--accent-cyan);padding:0.15rem 0.4rem;border-radius:4px;">.agent/SOUL.md</code>，定义数据分析师角色。</p>
+            <div class="code-block"><span class="code-lang">SOUL.md</span><pre><span class="hl-comment"># 月度简报数据分析师</span>
+
+<span class="hl-key">## 角色</span>
+你是公司月度业务数据分析专家，擅长从多维数据中提炼洞察。
+
+<span class="hl-key">## 风格</span>
+- 结论先行，数据支撑紧跟其后
+- 使用表格呈现指标对比
+- 自动计算环比变化
+- 关键发现用加粗标注
+
+<span class="hl-key">## 约束</span>
+- 所有数据引用必须标注来源
+- 缺失数据时主动提示而非编造
+- 日期格式统一使用 YYYY-MM-DD</pre></div>
+          </div>
+        </div>
+
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#8b5cf6;background:rgba(139,92,246,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#8b5cf6;">Step 6 — 配置子代理</h4>
+            <p>定义一个 data-collector 子代理专门负责数据采集，与主 Agent 分工协作。</p>
+            <div class="code-block"><span class="code-lang">config.yaml</span><pre><span class="hl-key">subagents</span>:
+  <span class="hl-key">custom_agents</span>:
+    <span class="hl-key">data-collector</span>:
+      <span class="hl-key">description</span>: <span class="hl-str">"数据采集专员：从各数据源采集月度指标"</span>
+      <span class="hl-key">system_prompt</span>: |
+        你是数据采集专员。你的任务是：
+        1. 从数据库和文件中采集指定月度的业务指标
+        2. 清洗数据，处理缺失值
+        3. 返回结构化 JSON 格式的数据
+        不要分析数据，只负责采集和清洗。
+      <span class="hl-key">tools</span>:
+        - <span class="hl-str">bash</span>
+        - <span class="hl-str">read_file</span>
+        - <span class="hl-str">fetch_monthly_data</span>
+      <span class="hl-key">skills</span>:
+        - <span class="hl-str">monthly-report</span>
+      <span class="hl-key">max_turns</span>: <span class="hl-str">40</span>
+      <span class="hl-key">timeout_seconds</span>: <span class="hl-str">300</span></pre></div>
+          </div>
+        </div>
+
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#ef4444;background:rgba(239,68,68,0.3);"></div><div class="step-connector" style="background:transparent;"></div></div>
+          <div class="step-content">
+            <h4 style="color:#ef4444;">Step 7 — 可选中间件增强</h4>
+            <p>无需代码改动，通过 config.yaml 启用内置中间件：</p>
+            <div class="code-block"><span class="code-lang">config.yaml</span><pre><span class="hl-comment"># 自动摘要：当 Token 接近上限时自动压缩上下文</span>
+<span class="hl-key">summarization</span>:
+  <span class="hl-key">enabled</span>: <span class="hl-str">true</span>
+  <span class="hl-key">trigger</span>:
+    - <span class="hl-key">type</span>: <span class="hl-str">tokens</span>
+      <span class="hl-key">value</span>: <span class="hl-str">120000</span>
+
+<span class="hl-comment"># 循环检测：防止 Agent 无限循环</span>
+<span class="hl-key">loop_detection</span>:
+  <span class="hl-key">enabled</span>: <span class="hl-str">true</span>
+  <span class="hl-key">warn_threshold</span>: <span class="hl-str">3</span>
+  <span class="hl-key">hard_limit</span>: <span class="hl-str">5</span>
+
+<span class="hl-comment"># 自动标题：为每次运行生成标题</span>
+<span class="hl-key">title</span>:
+  <span class="hl-key">enabled</span>: <span class="hl-str">true</span>
+  <span class="hl-key">max_words</span>: <span class="hl-str">6</span></pre></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary card -->
+      <div class="card card-green" style="margin-top:2rem;">
+        <div class="card-icon">✅</div>
+        <h3>完成！月度简报助手的定制化路径总结</h3>
+        <p>通过以上 7 步，你已经在不修改框架源码的前提下，通过<strong>纯配置和文件</strong>完成了月度简报助手的定制。最终效果：</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.75rem;margin-top:1rem;">
+          <div style="padding:0.75rem;background:rgba(34,197,94,0.08);border-radius:8px;border:1px solid rgba(34,197,94,0.15);">
+            <strong style="font-size:0.85rem;">🎯 专属模型</strong>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem;">Claude Sonnet 长上下文</p>
+          </div>
+          <div style="padding:0.75rem;background:rgba(236,72,153,0.08);border-radius:8px;border:1px solid rgba(236,72,153,0.15);">
+            <strong style="font-size:0.85rem;">🔌 数据源</strong>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem;">MCP 连接文件/数据库</p>
+          </div>
+          <div style="padding:0.75rem;background:rgba(79,143,247,0.08);border-radius:8px;border:1px solid rgba(79,143,247,0.15);">
+            <strong style="font-size:0.85rem;">🛠️ 专属工具</strong>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem;">数据采集 + 报告导出</p>
+          </div>
+          <div style="padding:0.75rem;background:rgba(245,158,11,0.08);border-radius:8px;border:1px solid rgba(245,158,11,0.15);">
+            <strong style="font-size:0.85rem;">📦 技能定义</strong>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem;">SKILL.md 工作流</p>
+          </div>
+          <div style="padding:0.75rem;background:rgba(6,182,212,0.08);border-radius:8px;border:1px solid rgba(6,182,212,0.15);">
+            <strong style="font-size:0.85rem;">💬 分析师人格</strong>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem;">SOUL.md 角色定义</p>
+          </div>
+          <div style="padding:0.75rem;background:rgba(139,92,246,0.08);border-radius:8px;border:1px solid rgba(139,92,246,0.15);">
+            <strong style="font-size:0.85rem;">🔄 采集子代理</strong>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem;">data-collector 分工</p>
+          </div>
+          <div style="padding:0.75rem;background:rgba(239,68,68,0.08);border-radius:8px;border:1px solid rgba(239,68,68,0.15);">
+            <strong style="font-size:0.85rem;">🔗 安全增强</strong>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem;">摘要 + 循环检测</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>🦌 DeerFlow Customization Guide · Built with Mermaid.js</p>
+      <p style="margin-top:0.5rem;">
+        <a href="architecture.html" style="color:var(--accent-blue);text-decoration:none;">架构总览</a>
+        &nbsp;·&nbsp;
+        <a href="module-structure.html" style="color:var(--accent-blue);text-decoration:none;">模块结构</a>
+        &nbsp;·&nbsp;
+        <a href="data-flow.html" style="color:var(--accent-blue);text-decoration:none;">数据流</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#1a1a2e', primaryTextColor: '#e8e8f0', primaryBorderColor: '#4f8ff7',
+        lineColor: '#666688', secondaryColor: '#2a2a4a', tertiaryColor: '#1a1a2e',
+        fontFamily: 'Inter, sans-serif', fontSize: '13px',
+        clusterBkg: '#12121a', clusterBorder: '#2a2a4a', titleColor: '#e8e8f0',
+        edgeLabelBackground: '#1a1a2e',
+      },
+      flowchart: { htmlLabels: true, curve: 'basis', padding: 15 },
+    });
+
+    function switchTab(event, tabId) {
+      const container = event.target.closest('.section');
+      container.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      container.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+      setTimeout(() => {
+        const panel = document.getElementById(tabId);
+        panel.querySelectorAll('.mermaid:not([data-processed])').forEach(el => {
+          mermaid.run({ nodes: [el] });
+        });
+      }, 100);
+    }
+  </script>
+</body>
+</html>

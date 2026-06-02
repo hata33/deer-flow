@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeerFlow - 系统架构文档</title>
+  <!-- UnoCSS Runtime -->
+  <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime"></script>
+  <!-- Mermaid.js -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <!-- Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-card: #1a1a2e;
+      --bg-card-hover: #222240;
+      --border: #2a2a4a;
+      --text-primary: #e8e8f0;
+      --text-secondary: #9999b8;
+      --text-muted: #666688;
+      --accent-blue: #4f8ff7;
+      --accent-purple: #8b5cf6;
+      --accent-green: #22c55e;
+      --accent-orange: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-cyan: #06b6d4;
+      --accent-pink: #ec4899;
+      --gradient-1: linear-gradient(135deg, #4f8ff7, #8b5cf6);
+      --gradient-2: linear-gradient(135deg, #22c55e, #06b6d4);
+      --gradient-3: linear-gradient(135deg, #f59e0b, #ef4444);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-blue); }
+
+    /* Navigation */
+    .nav-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(10, 10, 15, 0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 700;
+      font-size: 1.25rem;
+      text-decoration: none;
+      color: var(--text-primary);
+    }
+
+    .nav-logo .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--gradient-1);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .nav-links a {
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .nav-links a:hover, .nav-links a.active {
+      background: var(--bg-card);
+      color: var(--text-primary);
+    }
+
+    /* Layout */
+    .main-content {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 96px 2rem 4rem;
+    }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 3rem 0 4rem;
+      position: relative;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(79, 143, 247, 0.08), transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.375rem 1rem;
+      background: rgba(79, 143, 247, 0.1);
+      border: 1px solid rgba(79, 143, 247, 0.2);
+      border-radius: 100px;
+      font-size: 0.8rem;
+      color: var(--accent-blue);
+      margin-bottom: 1.5rem;
+      font-weight: 500;
+    }
+
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, #e8e8f0, #9999b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--text-secondary);
+      max-width: 640px;
+      margin: 0 auto;
+      line-height: 1.8;
+    }
+
+    /* Section */
+    .section {
+      margin-bottom: 4rem;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+
+    .section-header h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .section-header p {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-left: auto;
+    }
+
+    /* Diagram Container */
+    .diagram-container {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+      overflow-x: auto;
+      position: relative;
+    }
+
+    .diagram-container .diagram-label {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      background: var(--bg-card);
+      padding: 0.25rem 0.75rem;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .diagram-container pre {
+      margin: 0;
+    }
+
+    .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+
+    /* Cards Grid */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.75rem;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      border-radius: 14px 14px 0 0;
+    }
+
+    .card:hover {
+      border-color: rgba(79, 143, 247, 0.3);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .card-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      margin-bottom: 1rem;
+    }
+
+    .card h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .card p {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      line-height: 1.7;
+    }
+
+    .card .tech-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.375rem;
+      margin-top: 1rem;
+    }
+
+    .tech-tag {
+      font-size: 0.7rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* Color variants */
+    .card-blue::before { background: var(--gradient-1); }
+    .card-blue .card-icon { background: rgba(79, 143, 247, 0.15); }
+    .card-green::before { background: var(--gradient-2); }
+    .card-green .card-icon { background: rgba(34, 197, 94, 0.15); }
+    .card-orange::before { background: var(--gradient-3); }
+    .card-orange .card-icon { background: rgba(245, 158, 11, 0.15); }
+    .card-purple::before { background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+    .card-purple .card-icon { background: rgba(139, 92, 246, 0.15); }
+    .card-cyan::before { background: linear-gradient(135deg, #06b6d4, #22c55e); }
+    .card-cyan .card-icon { background: rgba(6, 182, 212, 0.15); }
+
+    /* Tech Stack Table */
+    .tech-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--bg-card);
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    .tech-table th {
+      background: var(--bg-secondary);
+      padding: 1rem 1.25rem;
+      text-align: left;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .tech-table td {
+      padding: 0.875rem 1.25rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+
+    .tech-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .tech-table .layer-name {
+      font-weight: 600;
+      color: var(--accent-blue);
+    }
+
+    .tech-table .tech-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.825rem;
+      color: var(--accent-green);
+    }
+
+    /* Mermaid theme override */
+    .mermaid svg {
+      max-width: 100%;
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      padding: 1rem 1.5rem;
+      background: var(--bg-card);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      margin-top: 1rem;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+    }
+
+    /* Tab Navigation */
+    .tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1.5rem;
+      padding: 0.25rem;
+      background: var(--bg-secondary);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      padding: 0.625rem 1.25rem;
+      border-radius: 10px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+      font-family: inherit;
+    }
+
+    .tab-btn:hover { color: var(--text-primary); }
+
+    .tab-btn.active {
+      background: var(--bg-card);
+      color: var(--text-primary);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Stat cards */
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .stat-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      padding: 3rem 0;
+      border-top: 1px solid var(--border);
+      margin-top: 4rem;
+    }
+
+    .footer p {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2rem; }
+      .hero p { font-size: 1rem; }
+      .main-content { padding: 80px 1rem 2rem; }
+      .nav-links { display: none; }
+      .cards-grid { grid-template-columns: 1fr; }
+      .stat-row { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="nav-bar">
+    <a href="architecture.html" class="nav-logo">
+      <span class="logo-icon">🦌</span>
+      <span>DeerFlow Architecture</span>
+    </a>
+    <div class="nav-links">
+      <a href="#overview" class="active">总览</a>
+      <a href="#tech-stack">技术栈</a>
+      <a href="#layers">分层架构</a>
+      <a href="#modules">模块结构</a>
+      <a href="#data-flow">数据流</a>
+      <a href="#middleware">中间件</a>
+      <a href="#deployment">部署</a>
+      <a href="customization-guide.html">🗺️ 定制化</a>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <!-- Hero -->
+    <div class="hero">
+      <div class="hero-badge">
+        <span>📖</span> Open Source Super Agent Harness
+      </div>
+      <h1>DeerFlow 系统架构</h1>
+      <p>基于 LangGraph 的超级 Agent 编排框架，集成子代理、记忆系统、沙箱执行和可扩展技能体系，支持多平台 IM 集成</p>
+    </div>
+
+    <!-- Stats -->
+    <div class="stat-row">
+      <div class="stat-card">
+        <div class="stat-value" style="color: var(--accent-blue);">~20</div>
+        <div class="stat-label">中间件组件</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: var(--accent-purple);">8+</div>
+        <div class="stat-label">IM 平台集成</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: var(--accent-green);">4</div>
+        <div class="stat-label">记忆系统层级</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: var(--accent-orange);">5+</div>
+        <div class="stat-label">LLM 模型支持</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: var(--accent-cyan);">3</div>
+        <div class="stat-label">最大并发子代理</div>
+      </div>
+    </div>
+
+    <!-- 1. System Overview -->
+    <div class="section" id="overview">
+      <div class="section-header">
+        <div class="section-icon" style="background: rgba(79,143,247,0.15);">🏗️</div>
+        <h2>系统架构总览</h2>
+        <p>High-Level Architecture Overview</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">System Overview</span>
+        <pre class="mermaid">
+graph TB
+    subgraph Frontend["🖥️ 前端层 (Frontend)"]
+        direction LR
+        UI["Next.js 16<br/>React 19<br/>Tailwind CSS"]
+        Chat["💬 聊天界面"]
+        Workspace["🔧 工作台"]
+        Settings["⚙️ 设置面板"]
+        UI --> Chat & Workspace & Settings
+    end
+
+    subgraph Gateway["🌐 网关层 (Gateway)"]
+        direction LR
+        Nginx["Nginx<br/>:2026"]
+        FastAPI["FastAPI<br/>:8001"]
+        Auth["JWT 认证"]
+        Router["API 路由"]
+        Nginx --> FastAPI --> Auth --> Router
+    end
+
+    subgraph Runtime["⚡ 运行时层 (Runtime)"]
+        direction LR
+        RunMgr["RunManager"]
+        Stream["StreamBridge"]
+        Journal["RunJournal"]
+        Events["EventStore"]
+        RunMgr --> Stream & Journal & Events
+    end
+
+    subgraph Orchestration["🧠 编排层 (Orchestration)"]
+        direction LR
+        Lead["Lead Agent<br/>主代理"]
+        MW["Middleware Chain<br/>~20 中间件"]
+        LLM["LLM 调用<br/>多模型支持"]
+        Lead --> MW --> LLM
+    end
+
+    subgraph Capabilities["🔧 能力层 (Capabilities)"]
+        direction LR
+        Tools["🛠️ 工具系统"]
+        Skills["📦 技能系统<br/>SKILL.md"]
+        Memory["🧠 记忆系统<br/>4 层架构"]
+        MCP["🔌 MCP 协议"]
+    end
+
+    subgraph Sandbox["🔒 沙箱层 (Sandbox)"]
+        direction LR
+        Local["本地沙箱<br/>路径映射"]
+        Docker["Docker 容器<br/>隔离执行"]
+    end
+
+    subgraph Subagents["🤖 子代理层 (Subagents)"]
+        direction LR
+        Task["Task 代理<br/>并发 ≤3"]
+        Bash["Bash 代理"]
+        General["通用代理"]
+    end
+
+    subgraph Channels["📱 IM 通道层 (Channels)"]
+        direction LR
+        Discord["Discord"]
+        Slack["Slack"]
+        Telegram["Telegram"]
+        WeChat["微信/企微"]
+        DingTalk["钉钉"]
+        Feishu["飞书"]
+    end
+
+    Frontend -->|"HTTP / SSE"| Gateway
+    Gateway -->|"Background Task"| Runtime
+    Runtime --> Orchestration
+    Orchestration --> Capabilities
+    Orchestration --> Subagents
+    Capabilities --> Sandbox
+    Capabilities --> Tools & Skills & Memory & MCP
+    Gateway -->|"Webhook"| Channels
+
+    style Frontend fill:#1a2744,stroke:#4f8ff7,stroke-width:2px
+    style Gateway fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px
+    style Runtime fill:#1a3327,stroke:#22c55e,stroke-width:2px
+    style Orchestration fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px
+    style Capabilities fill:#33291a,stroke:#f59e0b,stroke-width:2px
+    style Sandbox fill:#331a1a,stroke:#ef4444,stroke-width:2px
+    style Subagents fill:#2a1a3e,stroke:#ec4899,stroke-width:2px
+    style Channels fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px
+        </pre>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><span class="legend-dot" style="background:#4f8ff7;"></span> 前端层</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#06b6d4;"></span> 网关/通道层</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#22c55e;"></span> 运行时层</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#8b5cf6;"></span> 编排层</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span> 能力层</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#ef4444;"></span> 沙箱层</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#ec4899;"></span> 子代理层</div>
+      </div>
+    </div>
+
+    <!-- 2. Tech Stack -->
+    <div class="section" id="tech-stack">
+      <div class="section-header">
+        <div class="section-icon" style="background: rgba(34,197,94,0.15);">⚡</div>
+        <h2>技术栈全景</h2>
+        <p>Technology Stack</p>
+      </div>
+
+      <table class="tech-table">
+        <thead>
+          <tr>
+            <th>层级</th>
+            <th>技术</th>
+            <th>用途</th>
+            <th>版本</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="layer-name">🎨 前端框架</td>
+            <td class="tech-name">Next.js + React</td>
+            <td>App Router, SSR/SSG, 多语言</td>
+            <td>16.2 / 19.0</td>
+          </tr>
+          <tr>
+            <td class="layer-name">🎨 UI 组件</td>
+            <td class="tech-name">Radix UI + Tailwind CSS</td>
+            <td>无障碍组件库, 原子化 CSS</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="layer-name">🎨 数据请求</td>
+            <td class="tech-name">TanStack Query</td>
+            <td>异步状态管理, 缓存与同步</td>
+            <td>5.x</td>
+          </tr>
+          <tr>
+            <td class="layer-name">🐍 后端框架</td>
+            <td class="tech-name">FastAPI + Uvicorn</td>
+            <td>高性能异步 API 服务</td>
+            <td>0.115+</td>
+          </tr>
+          <tr>
+            <td class="layer-name">🐍 Agent 编排</td>
+            <td class="tech-name">LangGraph + LangChain</td>
+            <td>状态图工作流, LLM 集成</td>
+            <td>0.4+</td>
+          </tr>
+          <tr>
+            <td class="layer-name">🐍 数据验证</td>
+            <td class="tech-name">Pydantic v2</td>
+            <td>类型安全的数据模型</td>
+            <td>2.x</td>
+          </tr>
+          <tr>
+            <td class="layer-name">🐍 持久化</td>
+            <td class="tech-name">SQLAlchemy</td>
+            <td>ORM, 多数据库后端</td>
+            <td>2.x</td>
+          </tr>
+          <tr>
+            <td class="layer-name">🤖 LLM 模型</td>
+            <td class="tech-name">OpenAI / Anthropic / DeepSeek / Doubao</td>
+            <td>多模型供应商支持</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="layer-name">🔒 认证</td>
+            <td class="tech-name">JWT + CSRF</td>
+            <td>Token 认证 + 跨站保护</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="layer-name">📦 容器化</td>
+            <td class="tech-name">Docker + Docker Compose</td>
+            <td>沙箱隔离, 服务编排</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="layer-name">📊 可观测性</td>
+            <td class="tech-name">LangSmith / Langfuse</td>
+            <td>链路追踪, 指标监控</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="layer-name">🔌 工具协议</td>
+            <td class="tech-name">MCP (Model Context Protocol)</td>
+            <td>外部工具集成标准</td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 3. Layered Architecture -->
+    <div class="section" id="layers">
+      <div class="section-header">
+        <div class="section-icon" style="background: rgba(139,92,246,0.15);">📐</div>
+        <h2>分层架构</h2>
+        <p>Layered Architecture</p>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab(event, 'layer-overview')">架构全景</button>
+        <button class="tab-btn" onclick="switchTab(event, 'layer-frontend')">前端层</button>
+        <button class="tab-btn" onclick="switchTab(event, 'layer-backend')">后端层</button>
+        <button class="tab-btn" onclick="switchTab(event, 'layer-harness')">核心引擎</button>
+      </div>
+
+      <div id="layer-overview" class="tab-panel active">
+        <div class="diagram-container">
+          <span class="diagram-label">Layered Architecture</span>
+          <pre class="mermaid">
+graph TB
+    subgraph L1["L1 - 表现层 Presentation"]
+        direction LR
+        Browser["🌐 浏览器"]
+        MobileApp["📱 移动端"]
+        IM["💬 IM 客户端<br/>Discord/Slack/微信"]
+    end
+
+    subgraph L2["L2 - 接入层 Access"]
+        direction LR
+        Nginx["🔄 Nginx 反向代理<br/>:2026"]
+        APIGateway["🚪 FastAPI 网关<br/>:8001"]
+        AuthMW["🔐 JWT 认证中间件"]
+        CORS["🛡️ CORS/CSRF"]
+    end
+
+    subgraph L3["L3 - 应用层 Application"]
+        direction LR
+        RunMgr["⚙️ RunManager<br/>运行管理器"]
+        AgentRouter["🤖 Agent Router<br/>代理路由"]
+        ThreadMgr["📋 Thread Manager<br/>会话管理"]
+        SkillLoader["📦 Skill Loader<br/>技能加载"]
+    end
+
+    subgraph L4["L4 - 编排层 Orchestration"]
+        direction LR
+        LeadAgent["🧠 Lead Agent<br/>主代理"]
+        MWChain["🔗 Middleware Chain<br/>中间件链"]
+        ToolPipeline["🛠️ Tool Pipeline<br/>工具管线"]
+        SubAgentOrch["🔄 SubAgent Orchestrator<br/>子代理编排"]
+    end
+
+    subgraph L5["L5 - 领域层 Domain"]
+        direction LR
+        MemorySys["🧠 Memory System<br/>4层记忆"]
+        SandboxSys["🔒 Sandbox<br/>沙箱执行"]
+        MCPSys["🔌 MCP Client<br/>工具协议"]
+        TraceSys["📊 Tracing<br/>链路追踪"]
+    end
+
+    subgraph L6["L6 - 基础设施层 Infrastructure"]
+        direction LR
+        LLM["🤖 LLM Providers<br/>OpenAI/Anthropic/DeepSeek"]
+        DB["💾 Database<br/>SQLAlchemy ORM"]
+        Docker["🐳 Docker<br/>容器沙箱"]
+        FileStore["📁 File Storage<br/>文件持久化"]
+    end
+
+    L1 --> L2 --> L3 --> L4 --> L5 --> L6
+
+    style L1 fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style L2 fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px,color:#e8e8f0
+    style L3 fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style L4 fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style L5 fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style L6 fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+          </pre>
+        </div>
+      </div>
+
+      <div id="layer-frontend" class="tab-panel">
+        <div class="diagram-container">
+          <span class="diagram-label">Frontend Layer</span>
+          <pre class="mermaid">
+graph TB
+    subgraph NextJS["Next.js App Router"]
+        subgraph Pages["页面路由"]
+            Auth["(auth)/<br/>登录 / 初始化"]
+            Workspace["workspace/<br/>主工作台"]
+            Blog["blog/<br/>文档博客"]
+            API["api/<br/>BFF 接口"]
+        end
+
+        subgraph Components["组件库"]
+            ChatUI["💬 ChatInterface<br/>对话组件"]
+            AgentPanel["🤖 AgentPanel<br/>代理面板"]
+            SkillCard["📦 SkillCard<br/>技能卡片"]
+            ThreadList["📋 ThreadList<br/>会话列表"]
+            CodeEditor["📝 CodeMirror<br/>代码编辑器"]
+            ThemeToggle["🌓 ThemeToggle<br/>主题切换"]
+        end
+
+        subgraph Core["核心模块"]
+            APIClient["🌐 API Client<br/>请求封装"]
+            StateMgr["📦 State Manager<br/>状态管理"]
+            SSEHandler["📡 SSE Handler<br/>流式处理"]
+            I18n["🌍 i18n<br/>多语言支持"]
+        end
+
+        subgraph Hooks["自定义 Hooks"]
+            useAgent["useAgent()"]
+            useThread["useThread()"]
+            useMemory["useMemory()"]
+            useSkill["useSkill()"]
+        end
+    end
+
+    style NextJS fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style Pages fill:#1a2a4e,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style Components fill:#1a2a4e,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style Core fill:#1a2a4e,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style Hooks fill:#1a2a4e,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+          </pre>
+        </div>
+        <div class="cards-grid">
+          <div class="card card-blue">
+            <div class="card-icon">🌐</div>
+            <h3>App Router 架构</h3>
+            <p>采用 Next.js App Router 模式，支持 [lang] 动态路由实现多语言，SSE 流式渲染实时对话</p>
+            <div class="tech-tags">
+              <span class="tech-tag">Next.js 16</span>
+              <span class="tech-tag">React 19</span>
+              <span class="tech-tag">App Router</span>
+              <span class="tech-tag">SSE</span>
+            </div>
+          </div>
+          <div class="card card-green">
+            <div class="card-icon">🧩</div>
+            <h3>组件体系</h3>
+            <p>基于 Radix UI 原语构建的无障碍组件库，配合 Tailwind CSS 实现暗色/亮色主题切换</p>
+            <div class="tech-tags">
+              <span class="tech-tag">Radix UI</span>
+              <span class="tech-tag">Tailwind</span>
+              <span class="tech-tag">Dark Mode</span>
+            </div>
+          </div>
+          <div class="card card-purple">
+            <div class="card-icon">📡</div>
+            <h3>三源合并渲染</h3>
+            <p>前端 SSE 处理器将 status/message/artifact 三个流合并渲染，实现实时状态展示</p>
+            <div class="tech-tags">
+              <span class="tech-tag">EventSource</span>
+              <span class="tech-tag">TanStack Query</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="layer-backend" class="tab-panel">
+        <div class="diagram-container">
+          <span class="diagram-label">Backend Layer</span>
+          <pre class="mermaid">
+graph TB
+    subgraph FastAPI["FastAPI 网关 (:8001)"]
+        subgraph MW["中间件栈"]
+            CORS_MW["CORS 中间件"]
+            CSRF_MW["CSRF 保护"]
+            JWT_MW["JWT 认证"]
+            AuthZ_MW["权限校验"]
+        end
+
+        subgraph Routers["API 路由"]
+            AgentAPI["/api/agents<br/>代理管理"]
+            ThreadAPI["/api/threads<br/>会话管理"]
+            SkillAPI["/api/skills<br/>技能管理"]
+            MemoryAPI["/api/memory<br/>记忆管理"]
+            ArtifactAPI["/api/artifacts<br/>文件管理"]
+            AuthAPI["/api/auth<br/>认证端点"]
+        end
+    end
+
+    subgraph Channels["IM 通道管理"]
+        ChannelMgr["ChannelManager"]
+        MsgBus["MessageBus<br/>消息路由"]
+        Discord["Discord"]
+        Slack["Slack"]
+        Telegram["Telegram"]
+        WeChat["微信 / 企微"]
+        DingTalk["钉钉"]
+        Feishu["飞书"]
+        ChannelMgr --> MsgBus
+        MsgBus --> Discord & Slack & Telegram & WeChat & DingTalk & Feishu
+    end
+
+    subgraph Services["核心服务"]
+        RunService["RunService<br/>运行服务"]
+        AgentService["AgentService<br/>代理服务"]
+        PersistenceService["PersistenceService<br/>持久化服务"]
+    end
+
+    CORS_MW --> CSRF_MW --> JWT_MW --> AuthZ_MW --> Routers
+    Routers --> Services
+    Routers --> Channels
+
+    style FastAPI fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px,color:#e8e8f0
+    style Channels fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style Services fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+          </pre>
+        </div>
+      </div>
+
+      <div id="layer-harness" class="tab-panel">
+        <div class="diagram-container">
+          <span class="diagram-label">Core Harness Engine</span>
+          <pre class="mermaid">
+graph TB
+    subgraph Harness["DeerFlow Harness 核心"]
+        subgraph AgentEngine["Agent 引擎"]
+            Lead["Lead Agent<br/>LangGraph StateGraph"]
+            MW_Head["before_agent 中间件"]
+            MW_Model["wrap_model_call 中间件"]
+            MW_After["after_model 中间件"]
+            MW_Tool["wrap_tool_call 中间件"]
+            Lead --> MW_Head --> MW_Model --> MW_After --> MW_Tool
+        end
+
+        subgraph MemoryEngine["记忆引擎"]
+            MemQueue["Queue Layer<br/>去重/优先级"]
+            MemStore["Storage Layer<br/>JSON + mtime"]
+            MemInject["Injection Layer<br/>上下文注入"]
+            MemUse["Usage Layer<br/>事实提取/排序"]
+            MemQueue --> MemStore --> MemInject --> MemUse
+        end
+
+        subgraph ToolEngine["工具引擎"]
+            ToolConfig["Config Tools<br/>配置文件工具"]
+            ToolMCP["MCP Tools<br/>协议工具"]
+            ToolBuiltin["Builtin Tools<br/>内置工具"]
+            ToolSub["SubAgent Tools<br/>代理工具"]
+            ToolConfig --> ToolMCP --> ToolBuiltin --> ToolSub
+        end
+
+        subgraph SkillEngine["技能引擎"]
+            SkillScan["SKILL.md 解析"]
+            SkillValidate["Frontmatter 校验"]
+            SkillSecurity["安全扫描"]
+            SkillLoad["动态加载"]
+            SkillScan --> SkillValidate --> SkillSecurity --> SkillLoad
+        end
+
+        subgraph SandboxEngine["沙箱引擎"]
+            LocalProvider["Local Provider<br/>路径映射"]
+            DockerProvider["Docker Provider<br/>容器隔离"]
+            VFS["Virtual FS<br/>虚拟文件系统"]
+            LocalProvider & DockerProvider --> VFS
+        end
+    end
+
+    AgentEngine --> ToolEngine & SkillEngine & MemoryEngine
+    ToolEngine --> SandboxEngine
+
+    style Harness fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style AgentEngine fill:#3a2a4e,stroke:#8b5cf6,stroke-width:1px,color:#e8e8f0
+    style MemoryEngine fill:#2a3327,stroke:#22c55e,stroke-width:1px,color:#e8e8f0
+    style ToolEngine fill:#33291a,stroke:#f59e0b,stroke-width:1px,color:#e8e8f0
+    style SkillEngine fill:#1a2744,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style SandboxEngine fill:#331a1a,stroke:#ef4444,stroke-width:1px,color:#e8e8f0
+          </pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Module Structure -->
+    <div class="section" id="modules">
+      <div class="section-header">
+        <div class="section-icon" style="background: rgba(245,158,11,0.15);">📦</div>
+        <h2>模块结构</h2>
+        <p>Module Structure</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Module Dependency</span>
+        <pre class="mermaid">
+graph LR
+    subgraph Frontend["Frontend Modules"]
+        App["app/<br/>页面路由"]
+        Comp["components/<br/>UI 组件"]
+        Core["core/<br/>核心工具"]
+        Hooks["hooks/<br/>React Hooks"]
+        Lib["lib/<br/>外部集成"]
+    end
+
+    subgraph Gateway["Gateway Modules"]
+        Auth["auth/<br/>认证系统"]
+        Routers["routers/<br/>API 路由"]
+        Services["services.py<br/>业务服务"]
+    end
+
+    subgraph Harness["Harness Core"]
+        Agents["agents/<br/>代理引擎"]
+        Config["config/<br/>配置管理"]
+        MCP["mcp/<br/>MCP 协议"]
+        Models["models/<br/>数据模型"]
+        Runtime["runtime/<br/>运行时"]
+        Sandbox["sandbox/<br/>沙箱"]
+        Skills["skills/<br/>技能系统"]
+        Subagents["subagents/<br/>子代理"]
+        Tools["tools/<br/>工具集"]
+        Tracing["tracing/<br/>链路追踪"]
+        Persistence["persistence/<br/>持久化"]
+    end
+
+    subgraph Channels["Channels"]
+        ChMgr["manager.py"]
+        ChBus["message_bus.py"]
+        ChDiscord["discord.py"]
+        ChSlack["slack.py"]
+        ChWeChat["wechat.py"]
+        ChOthers["...其他平台"]
+    end
+
+    App --> Comp & Core & Hooks & Lib
+    Core --> Lib
+    Comp --> Hooks
+
+    Gateway --> Harness & Channels
+    Routers --> Auth & Services
+    Services --> Agents & Runtime
+
+    Agents --> Tools & Skills & Subagents & Memory & MCP
+    Agents --> Sandbox & Tracing & Persistence & Config
+    Subagents --> Agents
+
+    ChMgr --> ChBus
+    ChBus --> ChDiscord & ChSlack & ChWeChat & ChOthers
+
+    style Frontend fill:#1a2744,stroke:#4f8ff7,stroke-width:2px
+    style Gateway fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px
+    style Harness fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px
+    style Channels fill:#1a3327,stroke:#22c55e,stroke-width:2px
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-blue">
+          <div class="card-icon">🤖</div>
+          <h3>agents/ - 代理引擎</h3>
+          <p>基于 LangGraph StateGraph 的主代理实现，包含完整的 LLM 调用循环和工具执行管线</p>
+          <div class="tech-tags">
+            <span class="tech-tag">LeadAgent</span>
+            <span class="tech-tag">StateGraph</span>
+            <span class="tech-tag">Middleware Chain</span>
+          </div>
+        </div>
+        <div class="card card-green">
+          <div class="card-icon">🧠</div>
+          <h3>memory/ - 记忆系统</h3>
+          <p>四层架构：队列层(去重/优先级) → 存储层(JSON/mtime) → 注入层(上下文) → 使用层(事实提取)</p>
+          <div class="tech-tags">
+            <span class="tech-tag">4-Layer</span>
+            <span class="tech-tag">Decay</span>
+            <span class="tech-tag">Priority Queue</span>
+          </div>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🛠️</div>
+          <h3>tools/ - 工具系统</h3>
+          <p>优先级装配管线：Config → MCP → Builtin → SubAgent，支持动态工具注册与权限控制</p>
+          <div class="tech-tags">
+            <span class="tech-tag">Priority Pipeline</span>
+            <span class="tech-tag">MCP Protocol</span>
+            <span class="tech-tag">Guardrails</span>
+          </div>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">📦</div>
+          <h3>skills/ - 技能系统</h3>
+          <p>基于 SKILL.md 的声明式插件机制，支持 Frontmatter 校验、安全扫描和动态加载</p>
+          <div class="tech-tags">
+            <span class="tech-tag">SKILL.md</span>
+            <span class="tech-tag">Hot Reload</span>
+            <span class="tech-tag">Security Scan</span>
+          </div>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">🔒</div>
+          <h3>sandbox/ - 沙箱执行</h3>
+          <p>双模式执行：本地沙箱(路径映射+输出遮蔽) 和 Docker 容器(完全隔离)，虚拟文件系统</p>
+          <div class="tech-tags">
+            <span class="tech-tag">Local</span>
+            <span class="tech-tag">Docker</span>
+            <span class="tech-tag">Virtual FS</span>
+          </div>
+        </div>
+        <div class="card card-blue">
+          <div class="card-icon">🔄</div>
+          <h3>subagents/ - 子代理</h3>
+          <p>并发任务委派系统(最大3个)，双线程池架构(调度器+执行器)，事件驱动生命周期</p>
+          <div class="tech-tags">
+            <span class="tech-tag">Concurrent ≤3</span>
+            <span class="tech-tag">ThreadPool</span>
+            <span class="tech-tag">Event-Driven</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. Data Flow -->
+    <div class="section" id="data-flow">
+      <div class="section-header">
+        <div class="section-icon" style="background: rgba(6,182,212,0.15);">🌊</div>
+        <h2>数据流与生命周期</h2>
+        <p>Data Flow & Lifecycle</p>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab(event, 'flow-request')">请求处理流</button>
+        <button class="tab-btn" onclick="switchTab(event, 'flow-agent')">Agent 执行流</button>
+        <button class="tab-btn" onclick="switchTab(event, 'flow-memory')">记忆处理流</button>
+      </div>
+
+      <div id="flow-request" class="tab-panel active">
+        <div class="diagram-container">
+          <span class="diagram-label">Request Lifecycle</span>
+          <pre class="mermaid">
+sequenceDiagram
+    participant U as 👤 用户
+    participant F as 🖥️ Next.js 前端
+    participant N as 🔄 Nginx :2026
+    participant G as 🚪 FastAPI :8001
+    participant A as 🔐 Auth 中间件
+    participant R as ⚙️ RunManager
+    participant AG as 🧠 Lead Agent
+    participant LLM as 🤖 LLM Provider
+    participant S as 🔒 Sandbox
+    participant DB as 💾 Database
+
+    U->>F: 发送消息
+    F->>N: HTTP POST /api/threads/{id}/runs
+    N->>G: 反向代理转发
+    G->>A: JWT Token 验证
+    A->>R: 认证通过, 创建 Run
+    R->>AG: run_agent() 启动
+
+    rect rgb(42, 26, 62)
+        AG->>AG: Middleware Chain 执行
+        AG->>LLM: 模型调用 (流式)
+        LLM-->>AG: Token 流式返回
+
+        alt 需要工具调用
+            AG->>S: 执行工具 / Bash 命令
+            S-->>AG: 返回执行结果
+            AG->>LLM: 继续对话 (带工具结果)
+        end
+
+        alt 需要子代理
+            AG->>AG: task() 委派子代理
+        end
+    end
+
+    AG-->>R: 执行完成
+    R->>DB: 持久化运行记录
+
+    par SSE 流式推送
+        R-->>F: EventSource 事件流
+        F-->>U: 实时渲染响应
+    end
+          </pre>
+        </div>
+      </div>
+
+      <div id="flow-agent" class="tab-panel">
+        <div class="diagram-container">
+          <span class="diagram-label">Agent Execution Loop</span>
+          <pre class="mermaid">
+stateDiagram-v2
+    [*] --> Init: 用户消息输入
+    Init --> BeforeAgent: before_agent 中间件
+
+    state BeforeAgent {
+        [*] --> ThreadData: ThreadDataMiddleware
+        ThreadData --> SandboxInit: SandboxMiddleware
+        SandboxInit --> DynContext: DynamicContextMiddleware
+        DynContext --> [*]
+    }
+
+    BeforeAgent --> ModelCall: 准备完成
+
+    state ModelCall {
+        [*] --> WrapModel: wrap_model_call
+        WrapModel --> LLMInvoke: LLM 调用
+        LLMInvoke --> StreamTokens: 流式输出
+        StreamTokens --> [*]
+    }
+
+    ModelCall --> AfterModel: 模型返回
+
+    state AfterModel {
+        [*] --> TokenUsage: TokenUsageMiddleware
+        TokenUsage --> LoopDetect: LoopDetectionMiddleware
+        LoopDetect --> TitleGen: TitleMiddleware
+        TitleGen --> [*]
+    }
+
+    AfterModel --> Decision: 分析输出
+
+    Decision --> ToolCall: 需要工具调用
+    Decision --> SubAgent: 需要子代理
+    Decision --> Response: 直接响应
+
+    state ToolCall {
+        [*] --> WrapTool: wrap_tool_call
+        WrapTool --> Guardrail: GuardrailMiddleware
+        Guardrail --> SandboxAudit: SandboxAuditMiddleware
+        SandboxAudit --> ExecTool: 工具执行
+        ExecTool --> [*]
+    }
+
+    ToolCall --> ModelCall: 工具结果
+    SubAgent --> ModelCall: 子代理结果
+    Response --> [*]: 输出到用户
+          </pre>
+        </div>
+      </div>
+
+      <div id="flow-memory" class="tab-panel">
+        <div class="diagram-container">
+          <span class="diagram-label">Memory System Flow</span>
+          <pre class="mermaid">
+graph LR
+    subgraph Input["输入源"]
+        UserMsg["👤 用户消息"]
+        AgentResp["🤖 代理响应"]
+        ToolResult["🛠️ 工具结果"]
+    end
+
+    subgraph L1["L1 - Queue Layer<br/>队列层"]
+        Dedup["🔍 去重"]
+        Priority["📊 优先级排序"]
+        Buffer["💾 缓冲区"]
+        Dedup --> Priority --> Buffer
+    end
+
+    subgraph L2["L2 - Storage Layer<br/>存储层"]
+        JSON["📄 JSON 文件"]
+        MTime["🕐 mtime 缓存"]
+        Index["📇 索引"]
+        JSON --> MTime --> Index
+    end
+
+    subgraph L3["L3 - Injection Layer<br/>注入层"]
+        Selector["🎯 选择器"]
+        Formatter["📝 格式化"]
+        Context["📋 上下文构建"]
+        Selector --> Formatter --> Context
+    end
+
+    subgraph L4["L4 - Usage Layer<br/>使用层"]
+        Extract["💎 事实提取"]
+        Rank["📈 相关性排序"]
+        Decay["📉 衰减计算"]
+        Inject["➡️ 注入 Prompt"]
+        Extract --> Rank --> Decay --> Inject
+    end
+
+    Input --> L1 --> L2 --> L3 --> L4
+
+    style Input fill:#1a2744,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style L1 fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style L2 fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style L3 fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style L4 fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px,color:#e8e8f0
+          </pre>
+        </div>
+        <div class="cards-grid" style="margin-top:1rem;">
+          <div class="card card-green">
+            <div class="card-icon">📥</div>
+            <h3>L1 队列层</h3>
+            <p>去重 + 优先级排序 + 缓冲，防止重复记忆和过载</p>
+          </div>
+          <div class="card card-purple">
+            <div class="card-icon">💾</div>
+            <h3>L2 存储层</h3>
+            <p>JSON 文件存储 + mtime 缓存机制，高效读写记忆数据</p>
+          </div>
+          <div class="card card-orange">
+            <div class="card-icon">🎯</div>
+            <h3>L3 注入层</h3>
+            <p>智能选择相关记忆，格式化为 LLM 可消费的上下文</p>
+          </div>
+          <div class="card card-cyan">
+            <div class="card-icon">💎</div>
+            <h3>L4 使用层</h3>
+            <p>事实提取 + 相关性排序 + 时间衰减，精确注入 Prompt</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. Middleware -->
+    <div class="section" id="middleware">
+      <div class="section-header">
+        <div class="section-icon" style="background: rgba(236,72,153,0.15);">🔗</div>
+        <h2>中间件链</h2>
+        <p>Middleware Chain</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Middleware Execution Order</span>
+        <pre class="mermaid">
+graph TB
+    Input["📨 用户消息<br/>+ 线程上下文"]
+
+    subgraph Before["before_agent 阶段"]
+        T1["ThreadDataMiddleware<br/>📁 线程目录管理"]
+        T2["SandboxMiddleware<br/>🐳 沙箱环境初始化"]
+        T3["DynamicContextMiddleware<br/>🧠 记忆/日期注入"]
+    end
+
+    subgraph WrapModel["wrap_model_call 阶段"]
+        T4["LLMErrorHandlingMiddleware<br/>🔄 重试 + 熔断器"]
+    end
+
+    subgraph AfterModel["after_model 阶段"]
+        T5["TokenUsageMiddleware<br/>📊 Token 用量追踪"]
+        T6["LoopDetectionMiddleware<br/>🔁 无限循环检测"]
+        T7["TitleMiddleware<br/>📝 自动标题生成"]
+    end
+
+    subgraph WrapTool["wrap_tool_call 阶段"]
+        T8["GuardrailMiddleware<br/>🛡️ 安全策略检查"]
+        T9["SandboxAuditMiddleware<br/>🔍 Bash 命令审计"]
+    end
+
+    Output["📤 最终响应"]
+
+    Input --> T1 --> T2 --> T3 --> T4 --> T5 --> T6 --> T7 --> T8 --> T9 --> Output
+
+    style Before fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style WrapModel fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style AfterModel fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style WrapTool fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-green">
+          <div class="card-icon">📁</div>
+          <h3>before_agent</h3>
+          <p>准备阶段：初始化线程目录、沙箱环境、注入动态上下文（记忆、日期等）</p>
+        </div>
+        <div class="card card-blue">
+          <div class="card-icon">🔄</div>
+          <h3>wrap_model_call</h3>
+          <p>LLM 调用保护：错误处理、自动重试机制、熔断器模式防止级联故障</p>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">📊</div>
+          <h3>after_model</h3>
+          <p>后处理阶段：Token 用量统计、循环检测（防止代理无限循环）、自动生成会话标题</p>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🛡️</div>
+          <h3>wrap_tool_call</h3>
+          <p>安全防线：Guardrail 安全策略检查、Bash 命令审计、路径遍历防护</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. Deployment -->
+    <div class="section" id="deployment">
+      <div class="section-header">
+        <div class="section-icon" style="background: rgba(239,68,68,0.15);">🚀</div>
+        <h2>部署架构</h2>
+        <p>Deployment Architecture</p>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab(event, 'deploy-prod')">生产环境</button>
+        <button class="tab-btn" onclick="switchTab(event, 'deploy-dev')">开发环境</button>
+      </div>
+
+      <div id="deploy-prod" class="tab-panel active">
+        <div class="diagram-container">
+          <span class="diagram-label">Production Deployment</span>
+          <pre class="mermaid">
+graph TB
+    subgraph Internet["🌐 互联网"]
+        Users["👤 用户浏览器"]
+        IMPlatforms["💬 IM 平台"]
+    end
+
+    subgraph Production["🏢 生产环境"]
+        subgraph ReverseProxy["反向代理"]
+            NginxProd["Nginx<br/>:2026<br/>SSL 终止 / 负载均衡"]
+        end
+
+        subgraph AppServices["应用服务"]
+            FastAPIProd["FastAPI<br/>:8001<br/>API 网关"]
+            NextJSProd["Next.js<br/>:3000<br/>前端 SSR"]
+        end
+
+        subgraph AgentRuntime["Agent 运行时"]
+            LangGraph["LangGraph Runtime<br/>StateGraph 执行"]
+            SandboxDocker["Docker 沙箱<br/>隔离容器"]
+        end
+
+        subgraph Storage["存储层"]
+            DB["PostgreSQL<br/>持久化存储"]
+            FileStore["文件系统<br/>记忆/技能/配置"]
+        end
+
+        subgraph External["外部服务"]
+            LLMs["LLM APIs<br/>OpenAI/Anthropic/DeepSeek"]
+            MCPServers["MCP Servers<br/>外部工具服务"]
+            Tracing["可观测性<br/>LangSmith/Langfuse"]
+        end
+    end
+
+    Users --> NginxProd
+    IMPlatforms --> NginxProd
+    NginxProd --> FastAPIProd
+    NginxProd --> NextJSProd
+    FastAPIProd --> LangGraph
+    LangGraph --> SandboxDocker
+    LangGraph --> LLMs
+    LangGraph --> MCPServers
+    LangGraph --> Tracing
+    FastAPIProd --> DB
+    FastAPIProd --> FileStore
+
+    style Internet fill:#0a0a0f,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style Production fill:#1a1a2e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style ReverseProxy fill:#1a2a3e,stroke:#06b6d4,stroke-width:1px,color:#e8e8f0
+    style AppServices fill:#1a2744,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style AgentRuntime fill:#2a1a3e,stroke:#8b5cf6,stroke-width:1px,color:#e8e8f0
+    style Storage fill:#33291a,stroke:#f59e0b,stroke-width:1px,color:#e8e8f0
+    style External fill:#1a3327,stroke:#22c55e,stroke-width:1px,color:#e8e8f0
+          </pre>
+        </div>
+      </div>
+
+      <div id="deploy-dev" class="tab-panel">
+        <div class="diagram-container">
+          <span class="diagram-label">Development Environment</span>
+          <pre class="mermaid">
+graph LR
+    subgraph Dev["💻 开发环境"]
+        DevNext["Next.js Dev<br/>pnpm dev<br/>:3000 (HMR)"]
+        DevAPI["FastAPI Dev<br/>uv run<br/>:8001 (Auto-reload)"]
+        DevConfig["config.yaml<br/>本地配置"]
+    end
+
+    subgraph DockerDev["🐳 Docker Compose (Dev)"]
+        DevDB["PostgreSQL<br/>数据库"]
+        DevSandbox["Sandbox<br/>沙箱容器"]
+    end
+
+    subgraph LLMDev["🤖 LLM 服务"]
+        DevOpenAI["OpenAI API"]
+        DevAnthropic["Anthropic API"]
+        DevDeepSeek["DeepSeek API"]
+    end
+
+    DevNext -->|"Proxy → :8001"| DevAPI
+    DevAPI --> DevConfig
+    DevAPI --> DockerDev
+    DevAPI --> LLMDev
+
+    style Dev fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style DockerDev fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style LLMDev fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+          </pre>
+        </div>
+        <div class="cards-grid" style="margin-top:1rem;">
+          <div class="card card-blue">
+            <div class="card-icon">⚡</div>
+            <h3>快速启动</h3>
+            <p><code>make dev</code> 一键启动开发环境，前后端热重载</p>
+            <div class="tech-tags">
+              <span class="tech-tag">Makefile</span>
+              <span class="tech-tag">HMR</span>
+              <span class="tech-tag">Auto-reload</span>
+            </div>
+          </div>
+          <div class="card card-green">
+            <div class="card-icon">🐳</div>
+            <h3>Docker Compose</h3>
+            <p><code>docker-compose-dev.yaml</code> 提供数据库和沙箱容器服务</p>
+            <div class="tech-tags">
+              <span class="tech-tag">PostgreSQL</span>
+              <span class="tech-tag">Docker Sandbox</span>
+            </div>
+          </div>
+          <div class="card card-purple">
+            <div class="card-icon">🔧</div>
+            <h3>配置驱动</h3>
+            <p>通过 <code>config.yaml</code> 管理模型、通道、沙箱、技能等全部配置</p>
+            <div class="tech-tags">
+              <span class="tech-tag">YAML Config</span>
+              <span class="tech-tag">Hot Reload</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>🦌 DeerFlow Architecture Documentation · Generated with Mermaid.js · Dark Theme</p>
+      <p style="margin-top: 0.5rem;">基于 LangGraph 的开源超级 Agent 编排框架</p>
+    </div>
+  </div>
+
+  <script>
+    // Mermaid Init
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#1a1a2e',
+        primaryTextColor: '#e8e8f0',
+        primaryBorderColor: '#4f8ff7',
+        lineColor: '#666688',
+        secondaryColor: '#2a2a4a',
+        tertiaryColor: '#1a1a2e',
+        fontFamily: 'Inter, sans-serif',
+        fontSize: '13px',
+        nodeBorder: '#4f8ff7',
+        mainBkg: '#1a1a2e',
+        clusterBkg: '#12121a',
+        clusterBorder: '#2a2a4a',
+        titleColor: '#e8e8f0',
+        edgeLabelBackground: '#1a1a2e',
+        nodeTextColor: '#e8e8f0',
+      },
+      flowchart: {
+        htmlLabels: true,
+        curve: 'basis',
+        padding: 15,
+        nodeSpacing: 30,
+        rankSpacing: 50,
+      },
+      sequence: {
+        actorMargin: 50,
+        messageMargin: 35,
+        mirrorActors: false,
+        useMaxWidth: true,
+      },
+      stateDiagram: {
+        useMaxWidth: true,
+      }
+    });
+
+    // Tab Switching
+    function switchTab(event, tabId) {
+      const container = event.target.closest('.section');
+      container.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      container.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+
+      event.target.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+
+      // Re-render mermaid in newly visible panel
+      setTimeout(() => {
+        const panel = document.getElementById(tabId);
+        panel.querySelectorAll('.mermaid:not([data-processed])').forEach(el => {
+          mermaid.run({ nodes: [el] });
+        });
+      }, 100);
+    }
+
+    // Smooth scroll for nav links
+    document.querySelectorAll('.nav-links a').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = document.querySelector(link.getAttribute('href'));
+        if (target) {
+          window.scrollTo({
+            top: target.offsetTop - 80,
+            behavior: 'smooth'
+          });
+        }
+        document.querySelectorAll('.nav-links a').forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+      });
+    });
+
+    // Update active nav on scroll
+    const sections = document.querySelectorAll('.section');
+    const navItems = document.querySelectorAll('.nav-links a');
+
+    window.addEventListener('scroll', () => {
+      let current = '';
+      sections.forEach(section => {
+        const sectionTop = section.offsetTop - 100;
+        if (window.scrollY >= sectionTop) {
+          current = section.getAttribute('id');
+        }
+      });
+
+      navItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('href') === '#' + current) {
+          item.classList.add('active');
+        }
+      });
+    });
+  </script>
+</body>
+</html>

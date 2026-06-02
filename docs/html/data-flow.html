@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeerFlow - 数据流与生命周期</title>
+  <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #0a0a0f; --bg-secondary: #12121a; --bg-card: #1a1a2e; --border: #2a2a4a;
+      --text-primary: #e8e8f0; --text-secondary: #9999b8; --text-muted: #666688;
+      --accent-blue: #4f8ff7; --accent-purple: #8b5cf6; --accent-green: #22c55e;
+      --accent-orange: #f59e0b; --accent-red: #ef4444; --accent-cyan: #06b6d4; --accent-pink: #ec4899;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.7; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .nav-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(10,10,15,0.85); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0 2rem; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--text-primary); }
+    .nav-logo .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, #4f8ff7, #8b5cf6); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+    .nav-links { display: flex; gap: 0.25rem; }
+    .nav-links a { padding: 0.5rem 1rem; border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 0.875rem; font-weight: 500; transition: all 0.2s; }
+    .nav-links a:hover, .nav-links a.active { background: var(--bg-card); color: var(--text-primary); }
+
+    .main-content { max-width: 1280px; margin: 0 auto; padding: 96px 2rem 4rem; }
+    .section { margin-bottom: 4rem; }
+    .section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .section-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+    .section-header h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .section-header p { color: var(--text-muted); font-size: 0.875rem; margin-left: auto; }
+
+    .diagram-container { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; margin-bottom: 1.5rem; overflow-x: auto; position: relative; }
+    .diagram-container .diagram-label { position: absolute; top: 1rem; right: 1rem; font-size: 0.7rem; color: var(--text-muted); background: var(--bg-card); padding: 0.25rem 0.75rem; border-radius: 6px; font-family: 'JetBrains Mono', monospace; }
+    .diagram-container pre { margin: 0; }
+    .mermaid { display: flex; justify-content: center; }
+
+    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem; }
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 1.75rem; transition: all 0.3s ease; position: relative; overflow: hidden; }
+    .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 14px 14px 0 0; }
+    .card:hover { border-color: rgba(79,143,247,0.3); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+    .card-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; margin-bottom: 1rem; }
+    .card h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .card p { color: var(--text-secondary); font-size: 0.875rem; line-height: 1.7; }
+    .card .tech-tags { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 1rem; }
+    .tech-tag { font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 6px; background: rgba(255,255,255,0.05); color: var(--text-muted); font-family: 'JetBrains Mono', monospace; border: 1px solid rgba(255,255,255,0.05); }
+
+    .card-blue::before { background: linear-gradient(135deg, #4f8ff7, #8b5cf6); }
+    .card-blue .card-icon { background: rgba(79,143,247,0.15); }
+    .card-green::before { background: linear-gradient(135deg, #22c55e, #06b6d4); }
+    .card-green .card-icon { background: rgba(34,197,94,0.15); }
+    .card-orange::before { background: linear-gradient(135deg, #f59e0b, #ef4444); }
+    .card-orange .card-icon { background: rgba(245,158,11,0.15); }
+    .card-purple::before { background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+    .card-purple .card-icon { background: rgba(139,92,246,0.15); }
+    .card-cyan::before { background: linear-gradient(135deg, #06b6d4, #22c55e); }
+    .card-cyan .card-icon { background: rgba(6,182,212,0.15); }
+
+    .tabs { display: flex; gap: 0.25rem; margin-bottom: 1.5rem; padding: 0.25rem; background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border); overflow-x: auto; }
+    .tab-btn { padding: 0.625rem 1.25rem; border-radius: 10px; border: none; background: transparent; color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; white-space: nowrap; font-family: inherit; }
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active { background: var(--bg-card); color: var(--text-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .step-flow { display: flex; flex-direction: column; gap: 0; }
+    .step-item { display: flex; gap: 1.25rem; position: relative; }
+    .step-line { width: 40px; display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+    .step-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; border: 2px solid; position: relative; z-index: 1; }
+    .step-connector { width: 2px; flex: 1; background: var(--border); }
+    .step-content { flex: 1; padding-bottom: 1.5rem; }
+    .step-content h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .step-content p { font-size: 0.85rem; color: var(--text-secondary); }
+    .step-content code { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; background: rgba(79,143,247,0.1); color: var(--accent-blue); padding: 0.15rem 0.4rem; border-radius: 4px; }
+
+    .footer { text-align: center; padding: 3rem 0; border-top: 1px solid var(--border); margin-top: 4rem; }
+    .footer p { color: var(--text-muted); font-size: 0.8rem; }
+
+    @media (max-width: 768px) { .main-content { padding: 80px 1rem 2rem; } .nav-links { display: none; } .cards-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="architecture.html" class="nav-logo">
+      <span class="logo-icon">🦌</span>
+      <span>DeerFlow Data Flow</span>
+    </a>
+    <div class="nav-links">
+      <a href="architecture.html">🏠 总览</a>
+      <a href="module-structure.html">📦 模块</a>
+      <a href="#request">请求流</a>
+      <a href="#agent">Agent 流</a>
+      <a href="#sse">SSE 流</a>
+      <a href="#tool">工具流</a>
+      <a href="#memory">记忆流</a>
+      <a href="customization-guide.html">🗺️ 定制化</a>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <div style="text-align:center;padding:2rem 0 3rem;">
+      <h1 style="font-size:2.5rem;font-weight:800;margin-bottom:0.75rem;background:linear-gradient(135deg,#e8e8f0,#9999b8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">🌊 数据流与生命周期</h1>
+      <p style="color:var(--text-secondary);font-size:1.1rem;">从用户输入到响应输出的完整数据流转路径</p>
+    </div>
+
+    <!-- 1. Request Lifecycle -->
+    <div class="section" id="request">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(79,143,247,0.15);">📨</div>
+        <h2>请求处理生命周期</h2>
+        <p>Request Lifecycle</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Request Lifecycle</span>
+        <pre class="mermaid">
+sequenceDiagram
+    participant U as 👤 用户
+    participant FE as 🖥️ Next.js
+    participant Ng as 🔄 Nginx
+    participant GW as 🚪 FastAPI
+    participant Auth as 🔐 JWT
+    participant RM as ⚙️ RunManager
+    participant LA as 🧠 LeadAgent
+    participant LLM as 🤖 LLM
+    participant SB as 🌉 StreamBridge
+    participant SSE as 📡 SSE Endpoint
+
+    rect rgb(26, 39, 68)
+        Note over U,FE: 1. 用户发起请求
+        U->>FE: 发送消息
+        FE->>Ng: POST /api/threads/{id}/runs
+        Ng->>GW: 反向代理 → :8001
+    end
+
+    rect rgb(26, 42, 62)
+        Note over GW,Auth: 2. 认证与校验
+        GW->>Auth: CORS → CSRF → JWT 验证
+        Auth-->>GW: 认证通过 ✅
+    end
+
+    rect rgb(42, 26, 62)
+        Note over GW,RM: 3. 创建运行
+        GW->>RM: RunManager.create_run()
+        RM->>RM: 初始化 RunJournal
+        RM->>RM: 初始化 EventStore
+        RM->>SB: 创建 StreamBridge
+    end
+
+    rect rgb(42, 51, 26)
+        Note over RM,LLM: 4. Agent 执行循环
+        RM->>LA: run_agent(state)
+        LA->>LA: before_agent 中间件
+        LA->>LLM: 流式模型调用
+        LLM-->>SB: Token 流 → StreamBridge
+        SB->>SSE: 缓冲 + 转发
+        SSE-->>FE: EventSource 事件
+
+        alt 工具调用
+            LA->>LA: wrap_tool_call 中间件
+            LA->>LA: 执行工具 (Sandbox)
+            LA->>LLM: 带工具结果继续
+        end
+
+        alt 子代理
+            LA->>LA: task() 委派
+        end
+    end
+
+    rect rgb(51, 41, 26)
+        Note over RM,U: 5. 完成与清理
+        LA-->>RM: 执行完成
+        RM->>RM: 持久化记录
+        RM->>SB: 关闭流
+        SSE-->>FE: [DONE] 信号
+        FE-->>U: 渲染最终响应
+    end
+        </pre>
+      </div>
+
+      <div class="step-flow">
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#4f8ff7;background:rgba(79,143,247,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#4f8ff7;">Step 1: 请求接入</h4>
+            <p>用户通过 Web UI 或 IM 平台发送消息。前端通过 <code>POST /api/threads/{id}/runs</code> 发起请求，经 Nginx 反向代理到达 FastAPI 网关</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#06b6d4;background:rgba(6,182,212,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#06b6d4;">Step 2: 认证校验</h4>
+            <p>请求依次通过 CORS → CSRF → JWT 认证中间件链。验证 Token 有效性、用户权限，确保请求合法</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 3: 运行创建</h4>
+            <p><code>RunManager</code> 创建运行实例，初始化 <code>RunJournal</code> (回调日志)、<code>EventStore</code> (事件存储)、<code>StreamBridge</code> (流桥接)</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#8b5cf6;background:rgba(139,92,246,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#8b5cf6;">Step 4: Agent 执行</h4>
+            <p><code>LeadAgent</code> 执行中间件链 → LLM 流式调用 → 工具执行循环。每个 Token 通过 <code>StreamBridge</code> 实时推送到前端 SSE</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#f59e0b;background:rgba(245,158,11,0.3);"></div><div class="step-connector" style="background:transparent;"></div></div>
+          <div class="step-content">
+            <h4 style="color:#f59e0b;">Step 5: 完成清理</h4>
+            <p>Agent 执行完毕，持久化运行记录到数据库，关闭 SSE 流，发送 <code>[DONE]</code> 信号，前端渲染最终响应</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Agent Execution Loop -->
+    <div class="section" id="agent">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(139,92,246,0.15);">🧠</div>
+        <h2>Agent 执行循环</h2>
+        <p>Agent Execution Loop</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Agent Loop Detail</span>
+        <pre class="mermaid">
+graph TB
+    Start(["🚀 开始 run_agent"])
+
+    subgraph P1["Phase 1: before_agent"]
+        TD["ThreadDataMiddleware\n📁 线程目录初始化"]
+        SB["SandboxMiddleware\n🐳 沙箱环境准备"]
+        DC["DynamicContextMiddleware\n🧠 注入记忆 + 日期"]
+    end
+
+    subgraph P1b["Phase 1.5: 装配能力"]
+        SkillScan["Skills Loader\n📦 扫描 SKILL.md"]
+        SkillVal["校验 Frontmatter\n✅ 安全扫描"]
+        SkillInject["注入工具 + System Prompt\n🔧 动态装配"]
+        ToolAsm["Tool Pipeline\n🛠️ Config → MCP → Builtin → Sub"]
+    end
+
+    subgraph P2["Phase 2: LLM 调用"]
+        Err["LLMErrorHandling\n🔄 重试 + 熔断"]
+        Invoke["🤖 LLM Invoke\n流式输出"]
+    end
+
+    subgraph P3["Phase 3: after_model"]
+        Token["TokenUsage\n📊 用量统计"]
+        Loop["LoopDetection\n🔁 循环检测"]
+        Title["TitleGen\n📝 标题生成"]
+    end
+
+    Decision{"决策分支"}
+    ToolDec["🛠️ 工具调用"]
+    SubDec["🤖 子代理"]
+    DoneDec["✅ 完成"]
+
+    subgraph P4["Phase 4: wrap_tool_call"]
+        Guard["GuardrailMiddleware\n🛡️ 安全策略"]
+        Audit["SandboxAudit\n🔍 命令审计"]
+        Exec["⚙️ 工具执行"]
+    end
+
+    End(["🏁 输出响应"])
+
+    Start --> TD --> SB --> DC --> SkillScan --> SkillVal --> SkillInject --> ToolAsm --> Err --> Invoke --> Token --> Loop --> Title --> Decision
+
+    Decision -->|tool_call| ToolDec
+    Decision -->|subagent| SubDec
+    Decision -->|finish| DoneDec
+
+    ToolDec --> Guard --> Audit --> Exec --> Invoke
+    SubDec -->|"task() 并发 max 3"| Invoke
+    DoneDec --> End
+
+    style P1 fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style P1b fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px,color:#e8e8f0
+    style P2 fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style P3 fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style P4 fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+    style Decision fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-green">
+          <div class="card-icon">📋</div>
+          <h3>Phase 1 - 准备阶段</h3>
+          <p><strong>before_agent</strong> 中间件链：初始化线程工作目录、准备沙箱环境、注入动态上下文（记忆事实、当前日期等）</p>
+          <div class="tech-tags">
+            <span class="tech-tag">ThreadData</span>
+            <span class="tech-tag">Sandbox</span>
+            <span class="tech-tag">DynamicContext</span>
+          </div>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">📦</div>
+          <h3>Phase 1.5 - Skills 加载与工具装配</h3>
+          <p><strong>能力装配</strong>：扫描 SKILL.md → Frontmatter 校验 → 安全扫描 → 注入工具和 System Prompt → 按优先级装配工具管线（Config → MCP → Builtin → SubAgent）</p>
+          <div class="tech-tags">
+            <span class="tech-tag">SKILL.md</span>
+            <span class="tech-tag">Frontmatter</span>
+            <span class="tech-tag">Security Scan</span>
+            <span class="tech-tag">Tool Pipeline</span>
+          </div>
+        </div>
+        <div class="card card-blue">
+          <div class="card-icon">🤖</div>
+          <h3>Phase 2 - 模型调用</h3>
+          <p><strong>wrap_model_call</strong> 包裹 LLM 调用：错误处理中间件实现自动重试 + 熔断器，流式返回 Token</p>
+          <div class="tech-tags">
+            <span class="tech-tag">ErrorHandling</span>
+            <span class="tech-tag">Circuit Breaker</span>
+            <span class="tech-tag">Streaming</span>
+          </div>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">📊</div>
+          <h3>Phase 3 - 后处理</h3>
+          <p><strong>after_model</strong> 中间件链：Token 用量统计、循环检测（防止代理无限循环）、自动生成会话标题</p>
+          <div class="tech-tags">
+            <span class="tech-tag">TokenUsage</span>
+            <span class="tech-tag">LoopDetection</span>
+            <span class="tech-tag">TitleGeneration</span>
+          </div>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🛡️</div>
+          <h3>Phase 4 - 工具执行</h3>
+          <p><strong>wrap_tool_call</strong> 安全包装：Guardrail 安全策略检查 → SandboxAudit 命令审计 → 工具执行 → 结果返回 LLM</p>
+          <div class="tech-tags">
+            <span class="tech-tag">Guardrail</span>
+            <span class="tech-tag">SandboxAudit</span>
+            <span class="tech-tag">Execute</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. SSE Streaming -->
+    <div class="section" id="sse">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(6,182,212,0.15);">📡</div>
+        <h2>SSE 流式推送</h2>
+        <p>Server-Sent Events Streaming</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">SSE Event Stream</span>
+        <pre class="mermaid">
+graph LR
+    subgraph Backend["后端事件源"]
+        LLM["🤖 LLM Token 流"]
+        ToolEv["🛠️ 工具事件"]
+        AgentEv["📡 Agent 状态"]
+    end
+
+    subgraph Bridge["StreamBridge"]
+        Buffer["bounded buffer<br/>有界缓冲区"]
+        Merge["三源合并<br/>事件归一化"]
+        Encode["SSE 编码<br/>text/event-stream"]
+    end
+
+    subgraph Endpoint["SSE 端点"]
+        Handler["/api/threads/{id}/runs/stream"]
+    end
+
+    subgraph Frontend["前端处理"]
+        EventSrc["EventSource API"]
+        Status["📊 状态更新"]
+        Message["💬 消息渲染"]
+        Artifact["📦 Artifact 更新"]
+    end
+
+    LLM & ToolEv & AgentEv --> Buffer --> Merge --> Encode --> Handler --> EventSrc
+    EventSrc --> Status & Message & Artifact
+
+    style Backend fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style Bridge fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style Endpoint fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px,color:#e8e8f0
+    style Frontend fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-purple">
+          <div class="card-icon">🌉</div>
+          <h3>StreamBridge 流桥接</h3>
+          <p>后端核心组件。使用有界缓冲区(bounded buffer)将 LangChain 回调事件桥接到 SSE 协议格式，防止内存溢出</p>
+        </div>
+        <div class="card card-green">
+          <div class="card-icon">🔀</div>
+          <h3>三源合并</h3>
+          <p>将 LLM Token 流、工具执行事件、Agent 状态变更三个事件源归一化处理，统一编码为 SSE 格式推送</p>
+        </div>
+        <div class="card card-blue">
+          <div class="card-icon">🎨</div>
+          <h3>前端实时渲染</h3>
+          <p>前端通过 EventSource API 接收流，实时更新：状态指示器、对话消息、文件/Artifact 变更</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Tool Pipeline -->
+    <div class="section" id="tool">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(245,158,11,0.15);">🛠️</div>
+        <h2>工具装配管线</h2>
+        <p>Tool Assembly Pipeline</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Tool Priority Pipeline</span>
+        <pre class="mermaid">
+graph TB
+    subgraph Assembly["工具装配管线 (优先级从高到低)"]
+        direction TB
+        T1["① Config Tools<br/>📋 config.yaml 中定义的工具"]
+        T2["② MCP Tools<br/>🔌 MCP 协议外部工具"]
+        T3["③ Builtin Tools<br/>⚙️ 内置工具 (bash, read, write...)"]
+        T4["④ SubAgent Tools<br/>🤖 子代理工具 (task)"]
+    end
+
+    subgraph Execution["工具执行流程"]
+        Guard["🛡️ Guardrail 检查<br/>allow/deny 策略"]
+        Audit["🔍 Sandbox 审计<br/>命令过滤"]
+        Router["🔀 工具路由"]
+    end
+
+    subgraph Handlers["工具处理器"]
+        Bash["Bash Tool<br/>终端命令执行"]
+        FileRead["Read File<br/>文件读取"]
+        FileWrite["Write File<br/>文件写入"]
+        ListDir["List Dir<br/>目录列举"]
+        MCPTool["MCP Tool<br/>外部服务调用"]
+        SubAgentTool["SubAgent<br/>task() 委派"]
+    end
+
+    subgraph SandboxLayer["沙箱层"]
+        Local["Local Sandbox<br/>路径映射 + 遮蔽"]
+        Docker["Docker Sandbox<br/>容器隔离"]
+        VFS["Virtual FS<br/>/mnt/ 虚拟路径"]
+    end
+
+    T1 --> Guard --> Audit --> Router
+    T2 --> Guard
+    T3 --> Guard
+    T4 --> Guard
+    Router --> Bash & FileRead & FileWrite & ListDir & MCPTool & SubAgentTool
+    Bash --> SandboxLayer
+    FileRead & FileWrite & ListDir --> SandboxLayer
+    SandboxLayer --> Local & Docker
+    Local & Docker --> VFS
+
+    style Assembly fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style Execution fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+    style Handlers fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style SandboxLayer fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-orange">
+          <div class="card-icon">📋</div>
+          <h3>优先级装配</h3>
+          <p>工具按优先级依次装配：配置文件工具 → MCP 外部工具 → 内置工具 → 子代理工具。同名工具高优先级覆盖低优先级</p>
+        </div>
+        <div class="card card-red">
+          <div class="card-icon">🛡️</div>
+          <h3>安全防线</h3>
+          <p>每次工具调用经过 Guardrail 安全策略（allow/deny 规则）和 Sandbox 审计（危险命令过滤）双重检查</p>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">🔒</div>
+          <h3>沙箱隔离</h3>
+          <p>文件操作和命令执行在沙箱中进行。本地沙箱通过路径映射和输出遮蔽实现安全，Docker 沙箱提供完整容器隔离</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. Memory Flow -->
+    <div class="section" id="memory">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(34,197,94,0.15);">🧠</div>
+        <h2>记忆系统数据流</h2>
+        <p>Memory System Data Flow</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Memory 4-Layer Flow</span>
+        <pre class="mermaid">
+graph TB
+    subgraph Sources["消息来源"]
+        User["👤 用户消息"]
+        Agent["🤖 Agent 响应"]
+        Tool["🛠️ 工具结果"]
+    end
+
+    subgraph L1["L1 Queue Layer 队列层"]
+        Dedup["🔍 去重引擎<br/>Hash-based 去重"]
+        Priority["📊 优先级排序<br/>重要性评分"]
+        Buffer["💾 有界缓冲区<br/>防止过载"]
+    end
+
+    subgraph L2["L2 Storage Layer 存储层"]
+        JSONFiles["📄 JSON 文件存储<br/>每条记忆独立文件"]
+        MTimeCache["🕐 mtime 缓存<br/>基于修改时间"]
+        IndexLayer["📇 倒排索引<br/>关键词 → 记忆 ID"]
+    end
+
+    subgraph L3["L3 Injection Layer 注入层"]
+        Selector["🎯 相关性选择器<br/>语义匹配"]
+        Window["📐 上下文窗口<br/>Token 预算控制"]
+        Formatter["📝 Prompt 格式化<br/>结构化上下文"]
+    end
+
+    subgraph L4["L4 Usage Layer 使用层"]
+        FactExtract["💎 事实提取<br/>NLP 关键信息"]
+        Ranker["📈 相关性排序<br/>BM25 + 语义"]
+        Decay["📉 时间衰减<br/>指数衰减函数"]
+        Injector["➡️ Prompt 注入<br/>System Prompt 附加"]
+    end
+
+    Sources --> Dedup --> Priority --> Buffer
+    Buffer --> JSONFiles --> MTimeCache --> IndexLayer
+    IndexLayer --> Selector --> Window --> Formatter
+    Formatter --> FactExtract --> Ranker --> Decay --> Injector
+    Injector -.->|"注入到"| Agent
+
+    style Sources fill:#1a2744,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style L1 fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style L2 fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style L3 fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style L4 fill:#1a2a3e,stroke:#06b6d4,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-green">
+          <div class="card-icon">📥</div>
+          <h3>L1 队列层 - 收集与去重</h3>
+          <p>所有消息来源（用户、Agent、工具）进入队列层。通过 Hash 去重防止重复记忆，优先级排序确保重要信息优先处理</p>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">💾</div>
+          <h3>L2 存储层 - 持久化与索引</h3>
+          <p>记忆以 JSON 文件形式存储，利用文件修改时间(mtime)实现高效缓存。构建倒排索引用于快速检索</p>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🎯</div>
+          <h3>L3 注入层 - 选择与格式化</h3>
+          <p>相关性选择器根据当前上下文筛选记忆，窗口控制确保不超过 Token 预算，格式化为 LLM 可消费的结构化上下文</p>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">💎</div>
+          <h3>L4 使用层 - 提取与注入</h3>
+          <p>从记忆中提取关键事实，结合 BM25 和语义排序计算相关性，应用时间衰减函数，最终注入到 System Prompt 中</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>🦌 DeerFlow Data Flow Documentation · Generated with Mermaid.js</p>
+      <p style="margin-top:0.5rem;">
+        <a href="architecture.html" style="color:var(--accent-blue);text-decoration:none;">← 架构总览</a>
+        &nbsp;|&nbsp;
+        <a href="module-structure.html" style="color:var(--accent-blue);text-decoration:none;">模块结构 →</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#1a1a2e', primaryTextColor: '#e8e8f0', primaryBorderColor: '#4f8ff7',
+        lineColor: '#666688', secondaryColor: '#2a2a4a', tertiaryColor: '#1a1a2e',
+        fontFamily: 'Inter, sans-serif', fontSize: '13px',
+        clusterBkg: '#12121a', clusterBorder: '#2a2a4a', titleColor: '#e8e8f0',
+        edgeLabelBackground: '#1a1a2e',
+      },
+      flowchart: { htmlLabels: true, curve: 'basis', padding: 15 },
+      sequence: { actorMargin: 50, messageMargin: 35, mirrorActors: false, useMaxWidth: true },
+    });
+
+    function switchTab(event, tabId) {
+      const container = event.target.closest('.section');
+      container.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      container.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+      setTimeout(() => {
+        const panel = document.getElementById(tabId);
+        panel.querySelectorAll('.mermaid:not([data-processed])').forEach(el => {
+          mermaid.run({ nodes: [el] });
+        });
+      }, 100);
+    }
+  </script>
+</body>
+</html>

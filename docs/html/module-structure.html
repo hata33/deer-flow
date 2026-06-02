@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeerFlow - 模块结构与目录</title>
+  <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-card: #1a1a2e;
+      --bg-card-hover: #222240;
+      --border: #2a2a4a;
+      --text-primary: #e8e8f0;
+      --text-secondary: #9999b8;
+      --text-muted: #666688;
+      --accent-blue: #4f8ff7;
+      --accent-purple: #8b5cf6;
+      --accent-green: #22c55e;
+      --accent-orange: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-cyan: #06b6d4;
+      --accent-pink: #ec4899;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.7;
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .nav-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(10, 10, 15, 0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem; height: 64px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: 0.75rem;
+      font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--text-primary);
+    }
+    .nav-logo .logo-icon {
+      width: 32px; height: 32px; background: linear-gradient(135deg, #4f8ff7, #8b5cf6);
+      border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem;
+    }
+    .nav-links { display: flex; gap: 0.25rem; }
+    .nav-links a {
+      padding: 0.5rem 1rem; border-radius: 8px; color: var(--text-secondary);
+      text-decoration: none; font-size: 0.875rem; font-weight: 500; transition: all 0.2s;
+    }
+    .nav-links a:hover, .nav-links a.active { background: var(--bg-card); color: var(--text-primary); }
+
+    .main-content { max-width: 1280px; margin: 0 auto; padding: 96px 2rem 4rem; }
+
+    .section { margin-bottom: 4rem; }
+    .section-header {
+      display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;
+      padding-bottom: 1rem; border-bottom: 1px solid var(--border);
+    }
+    .section-icon {
+      width: 36px; height: 36px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;
+    }
+    .section-header h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .section-header p { color: var(--text-muted); font-size: 0.875rem; margin-left: auto; }
+
+    .diagram-container {
+      background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: 16px; padding: 2rem; margin-bottom: 1.5rem; overflow-x: auto; position: relative;
+    }
+    .diagram-container .diagram-label {
+      position: absolute; top: 1rem; right: 1rem; font-size: 0.7rem; color: var(--text-muted);
+      background: var(--bg-card); padding: 0.25rem 0.75rem; border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .diagram-container pre { margin: 0; }
+    .mermaid { display: flex; justify-content: center; }
+
+    /* ===== CSS Tree ===== */
+    .tree-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem 1rem 1.5rem 0;
+      overflow-x: auto;
+    }
+    .tree-wrap ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    /* nesting level */
+    .tree-wrap .t-children {
+      padding-left: 1.6rem;
+      position: relative;
+    }
+    /* vertical guide line */
+    .tree-wrap .t-children::before {
+      content: '';
+      position: absolute;
+      left: 1rem;
+      top: 0;
+      bottom: 0.65rem;
+      width: 1px;
+      background: var(--border);
+    }
+    /* each item */
+    .tree-wrap .t-item {
+      position: relative;
+    }
+    /* horizontal branch */
+    .tree-wrap .t-children > .t-item::before {
+      content: '';
+      position: absolute;
+      left: -0.6rem;
+      top: 1.05rem;
+      width: 0.6rem;
+      height: 1px;
+      background: var(--border);
+    }
+    /* node row */
+    .t-node {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 6px;
+      line-height: 1.6;
+      cursor: default;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .t-node:hover { background: rgba(255,255,255,0.04); }
+    .t-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 5px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      flex-shrink: 0;
+    }
+    .t-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      font-weight: 500;
+    }
+    .t-desc {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-left: 0.25rem;
+    }
+    /* variants */
+    .t-root > .t-node .t-name { color: var(--text-primary); font-weight: 700; font-size: 0.9rem; }
+    .t-dir > .t-node .t-name { color: var(--accent-blue); }
+    .t-dir > .t-node .t-icon { background: rgba(79,143,247,0.12); color: var(--accent-blue); }
+    .t-file > .t-node .t-name { color: var(--text-secondary); }
+    .t-file > .t-node .t-icon { background: rgba(255,255,255,0.06); color: var(--text-muted); }
+    .t-key > .t-node .t-name { color: var(--accent-orange); font-weight: 600; }
+    .t-key > .t-node .t-icon { background: rgba(245,158,11,0.15); color: var(--accent-orange); }
+    .t-hl > .t-node .t-name { color: var(--accent-green); font-weight: 600; }
+    .t-hl > .t-node .t-icon { background: rgba(34,197,94,0.12); color: var(--accent-green); }
+
+    /* section divider */
+    .tree-section {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 0 0.2rem 1.2rem;
+    }
+    .tree-section::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, var(--border), transparent);
+    }
+    .tree-section span {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--accent-purple);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.25rem;
+    }
+    .card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 1.75rem;
+      transition: all 0.3s ease; position: relative; overflow: hidden;
+    }
+    .card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0;
+      height: 3px; border-radius: 14px 14px 0 0;
+    }
+    .card:hover {
+      border-color: rgba(79, 143, 247, 0.3); transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+    }
+    .card-icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem; margin-bottom: 1rem;
+    }
+    .card h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .card p { color: var(--text-secondary); font-size: 0.875rem; line-height: 1.7; }
+    .card .tech-tags { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 1rem; }
+    .tech-tag {
+      font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05); color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace; border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .card-blue::before { background: linear-gradient(135deg, #4f8ff7, #8b5cf6); }
+    .card-blue .card-icon { background: rgba(79, 143, 247, 0.15); }
+    .card-green::before { background: linear-gradient(135deg, #22c55e, #06b6d4); }
+    .card-green .card-icon { background: rgba(34, 197, 94, 0.15); }
+    .card-orange::before { background: linear-gradient(135deg, #f59e0b, #ef4444); }
+    .card-orange .card-icon { background: rgba(245, 158, 11, 0.15); }
+    .card-purple::before { background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+    .card-purple .card-icon { background: rgba(139, 92, 246, 0.15); }
+    .card-cyan::before { background: linear-gradient(135deg, #06b6d4, #22c55e); }
+    .card-cyan .card-icon { background: rgba(6, 182, 212, 0.15); }
+    .card-red::before { background: linear-gradient(135deg, #ef4444, #f59e0b); }
+    .card-red .card-icon { background: rgba(239, 68, 68, 0.15); }
+
+    .footer {
+      text-align: center; padding: 3rem 0; border-top: 1px solid var(--border); margin-top: 4rem;
+    }
+    .footer p { color: var(--text-muted); font-size: 0.8rem; }
+
+    .tabs {
+      display: flex; gap: 0.25rem; margin-bottom: 1.5rem; padding: 0.25rem;
+      background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border); overflow-x: auto;
+    }
+    .tab-btn {
+      padding: 0.625rem 1.25rem; border-radius: 10px; border: none; background: transparent;
+      color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; cursor: pointer;
+      transition: all 0.2s; white-space: nowrap; font-family: inherit;
+    }
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active { background: var(--bg-card); color: var(--text-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    @media (max-width: 768px) {
+      .main-content { padding: 80px 1rem 2rem; }
+      .nav-links { display: none; }
+      .cards-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="architecture.html" class="nav-logo">
+      <span class="logo-icon">🦌</span>
+      <span>DeerFlow Modules</span>
+    </a>
+    <div class="nav-links">
+      <a href="architecture.html">🏠 总览</a>
+      <a href="#directory">目录结构</a>
+      <a href="#backend">后端模块</a>
+      <a href="#frontend">前端模块</a>
+      <a href="#harness">核心引擎</a>
+      <a href="#channels">IM 通道</a>
+      <a href="customization-guide.html">🗺️ 定制化</a>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <!-- Header -->
+    <div style="text-align:center;padding:2rem 0 3rem;">
+      <h1 style="font-size:2.5rem;font-weight:800;margin-bottom:0.75rem;background:linear-gradient(135deg,#e8e8f0,#9999b8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">📦 模块结构与目录</h1>
+      <p style="color:var(--text-secondary);font-size:1.1rem;">DeerFlow 项目的完整模块结构、依赖关系与核心组件解析</p>
+    </div>
+
+    <!-- Directory Tree -->
+    <div class="section" id="directory">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(79,143,247,0.15);">📂</div>
+        <h2>项目目录结构</h2>
+        <p>Project Directory Structure</p>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab(event, 'tree-full')">完整目录</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tree-backend')">后端</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tree-frontend')">前端</button>
+      </div>
+
+      <div id="tree-full" class="tab-panel active">
+        <div class="tree-wrap">
+          <ul>
+            <!-- deer-flow/ -->
+            <li class="t-item t-root">
+              <div class="t-node"><span class="t-icon">🦌</span><span class="t-name">deer-flow/</span><span class="t-desc">— 项目根目录</span></div>
+              <ul class="t-children">
+
+                <!-- backend/ -->
+                <li class="t-item t-dir">
+                  <div class="t-node"><span class="t-icon">🐍</span><span class="t-name">backend/</span><span class="t-desc">Python 后端服务</span></div>
+                  <ul class="t-children">
+
+                    <!-- app/ -->
+                    <li class="t-item t-dir">
+                      <div class="t-node"><span class="t-icon">📁</span><span class="t-name">app/</span><span class="t-desc">FastAPI 应用</span></div>
+                      <ul class="t-children">
+                        <li class="t-item t-key"><div class="t-node"><span class="t-icon">⚡</span><span class="t-name">main.py</span><span class="t-desc">应用入口 / 生命周期管理</span></div></li>
+
+                        <!-- channels/ -->
+                        <li class="t-item t-dir">
+                          <div class="t-node"><span class="t-icon">💬</span><span class="t-name">channels/</span><span class="t-desc">IM 平台集成</span></div>
+                          <ul class="t-children">
+                            <li class="t-item t-hl"><div class="t-node"><span class="t-icon">📋</span><span class="t-name">manager.py</span><span class="t-desc">通道管理器</span></div></li>
+                            <li class="t-item t-hl"><div class="t-node"><span class="t-icon">🔀</span><span class="t-name">message_bus.py</span><span class="t-desc">消息总线</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">📄</span><span class="t-name">discord.py</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">📄</span><span class="t-name">slack.py</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">📄</span><span class="t-name">telegram.py</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">📄</span><span class="t-name">wechat.py</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">📄</span><span class="t-name">wecom.py</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">📄</span><span class="t-name">dingtalk.py</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">📄</span><span class="t-name">feishu.py</span></div></li>
+                          </ul>
+                        </li>
+
+                        <!-- gateway/ -->
+                        <li class="t-item t-dir">
+                          <div class="t-node"><span class="t-icon">🚪</span><span class="t-name">gateway/</span><span class="t-desc">API 网关</span></div>
+                          <ul class="t-children">
+                            <li class="t-item t-hl"><div class="t-node"><span class="t-icon">⚙️</span><span class="t-name">services.py</span><span class="t-desc">核心业务逻辑</span></div></li>
+                            <li class="t-item t-dir"><div class="t-node"><span class="t-icon">🔐</span><span class="t-name">auth/</span><span class="t-desc">JWT 认证系统</span></div></li>
+                            <li class="t-item t-dir">
+                              <div class="t-node"><span class="t-icon">🔀</span><span class="t-name">routers/</span><span class="t-desc">API 路由</span></div>
+                              <ul class="t-children">
+                                <li class="t-item t-key"><div class="t-node"><span class="t-icon">🤖</span><span class="t-name">agents.py</span><span class="t-desc">代理管理 API</span></div></li>
+                                <li class="t-item t-key"><div class="t-node"><span class="t-icon">📋</span><span class="t-name">threads.py</span><span class="t-desc">会话管理 API</span></div></li>
+                                <li class="t-item t-file"><div class="t-node"><span class="t-icon">📄</span><span class="t-name">skills.py</span></div></li>
+                                <li class="t-item t-file"><div class="t-node"><span class="t-icon">📄</span><span class="t-name">memory.py</span></div></li>
+                                <li class="t-item t-file"><div class="t-node"><span class="t-icon">📄</span><span class="t-name">artifacts.py</span></div></li>
+                              </ul>
+                            </li>
+                          </ul>
+                        </li>
+                      </ul>
+                    </li>
+
+                    <!-- packages/harness/deerflow/ -->
+                    <li class="t-item t-dir">
+                      <div class="t-node"><span class="t-icon">📦</span><span class="t-name">packages/harness/</span><span class="t-desc">Workspace 包</span></div>
+                      <ul class="t-children">
+                        <li class="t-item t-key">
+                          <div class="t-node"><span class="t-icon">🎯</span><span class="t-name">deerflow/</span><span class="t-desc">核心引擎</span></div>
+                          <ul class="t-children">
+                            <li class="t-item t-key"><div class="t-node"><span class="t-icon">🤖</span><span class="t-name">agents/</span><span class="t-desc">代理引擎 (LeadAgent + 中间件链)</span></div></li>
+                            <li class="t-item t-key"><div class="t-node"><span class="t-icon">⚙️</span><span class="t-name">runtime/</span><span class="t-desc">运行时 (RunManager / StreamBridge)</span></div></li>
+                            <li class="t-item t-key"><div class="t-node"><span class="t-icon">🛠️</span><span class="t-name">tools/</span><span class="t-desc">工具系统 (Bash / Read / Write / MCP)</span></div></li>
+                            <li class="t-item t-key"><div class="t-node"><span class="t-icon">📦</span><span class="t-name">skills/</span><span class="t-desc">技能系统 (SKILL.md 插件)</span></div></li>
+                            <li class="t-item t-key"><div class="t-node"><span class="t-icon">🔄</span><span class="t-name">subagents/</span><span class="t-desc">子代理 (并发 max 3)</span></div></li>
+                            <li class="t-item t-key"><div class="t-node"><span class="t-icon">🔒</span><span class="t-name">sandbox/</span><span class="t-desc">沙箱引擎 (Local / Docker)</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">🔌</span><span class="t-name">mcp/</span><span class="t-desc">MCP 协议客户端</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">🔧</span><span class="t-name">config/</span><span class="t-desc">配置管理</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">📐</span><span class="t-name">models/</span><span class="t-desc">Pydantic 数据模型</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">📊</span><span class="t-name">tracing/</span><span class="t-desc">链路追踪</span></div></li>
+                            <li class="t-item t-file"><div class="t-node"><span class="t-icon">💾</span><span class="t-name">persistence/</span><span class="t-desc">SQLAlchemy 持久化</span></div></li>
+                          </ul>
+                        </li>
+                      </ul>
+                    </li>
+
+                    <li class="t-item t-dir"><div class="t-node"><span class="t-icon">🧪</span><span class="t-name">tests/</span><span class="t-desc">测试</span></div></li>
+                    <li class="t-item t-hl"><div class="t-node"><span class="t-icon">🐍</span><span class="t-name">pyproject.toml</span><span class="t-desc">Python 项目配置</span></div></li>
+                  </ul>
+                </li>
+
+                <!-- frontend/ -->
+                <li class="t-item t-dir">
+                  <div class="t-node"><span class="t-icon">🎨</span><span class="t-name">frontend/</span><span class="t-desc">Next.js 16 前端</span></div>
+                  <ul class="t-children">
+                    <li class="t-item t-dir">
+                      <div class="t-node"><span class="t-icon">📁</span><span class="t-name">src/</span></div>
+                      <ul class="t-children">
+                        <li class="t-item t-dir">
+                          <div class="t-node"><span class="t-icon">📄</span><span class="t-name">app/</span><span class="t-desc">App Router 页面</span></div>
+                          <ul class="t-children">
+                            <li class="t-item t-dir"><div class="t-node"><span class="t-icon">🔐</span><span class="t-name">(auth)/</span><span class="t-desc">认证页面</span></div></li>
+                            <li class="t-item t-key"><div class="t-node"><span class="t-icon">🖥️</span><span class="t-name">workspace/</span><span class="t-desc">主工作台</span></div></li>
+                            <li class="t-item t-dir"><div class="t-node"><span class="t-icon">🔀</span><span class="t-name">api/</span><span class="t-desc">BFF API 路由</span></div></li>
+                            <li class="t-item t-dir"><div class="t-node"><span class="t-icon">📝</span><span class="t-name">blog/</span><span class="t-desc">文档博客</span></div></li>
+                          </ul>
+                        </li>
+                        <li class="t-item t-dir"><div class="t-node"><span class="t-icon">🧩</span><span class="t-name">components/</span><span class="t-desc">UI 组件库</span></div></li>
+                        <li class="t-item t-hl"><div class="t-node"><span class="t-icon">⚡</span><span class="t-name">core/</span><span class="t-desc">核心工具 (API Client / State / SSE)</span></div></li>
+                        <li class="t-item t-dir"><div class="t-node"><span class="t-icon">🪝</span><span class="t-name">hooks/</span><span class="t-desc">React Hooks</span></div></li>
+                        <li class="t-item t-dir"><div class="t-node"><span class="t-icon">📚</span><span class="t-name">lib/</span><span class="t-desc">外部集成</span></div></li>
+                      </ul>
+                    </li>
+                  </ul>
+                </li>
+
+                <!-- root files -->
+                <li class="t-item t-key"><div class="t-node"><span class="t-icon">📋</span><span class="t-name">config.example.yaml</span><span class="t-desc">主配置文件 (44KB)</span></div></li>
+                <li class="t-item t-hl"><div class="t-node"><span class="t-icon">🔨</span><span class="t-name">Makefile</span><span class="t-desc">构建自动化</span></div></li>
+                <li class="t-item t-file"><div class="t-node"><span class="t-icon">🐳</span><span class="t-name">docker-compose.yaml</span><span class="t-desc">生产 Docker</span></div></li>
+                <li class="t-item t-file"><div class="t-node"><span class="t-icon">🐳</span><span class="t-name">docker-compose-dev.yaml</span><span class="t-desc">开发 Docker</span></div></li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="tree-backend" class="tab-panel">
+        <div class="diagram-container">
+          <span class="diagram-label">Backend Module Map</span>
+          <pre class="mermaid">
+graph TB
+    subgraph Backend["backend/"]
+        subgraph App["app/ - FastAPI 应用"]
+            Main["main.py<br/>应用入口"]
+            subgraph Channels["channels/ - IM 集成"]
+                CM["manager.py"]
+                MB["message_bus.py"]
+                DC["discord.py"]
+                SL["slack.py"]
+                TG["telegram.py"]
+                WC["wechat.py"]
+                WM["wecom.py"]
+                DT["dingtalk.py"]
+                FS["feishu.py"]
+            end
+            subgraph Gateway["gateway/ - API 网关"]
+                SV["services.py"]
+                subgraph Auth["auth/ - 认证"]
+                    JWT["JWT Handler"]
+                end
+                subgraph Routers["routers/ - API"]
+                    RA["agents.py"]
+                    RT["threads.py"]
+                    RS["skills.py"]
+                    RM["memory.py"]
+                    RF["artifacts.py"]
+                    RO["auth.py"]
+                end
+            end
+        end
+
+        subgraph Harness["packages/harness/deerflow/ - 核心引擎"]
+            Agents["agents/<br/>代理引擎"]
+            Config["config/<br/>配置管理"]
+            MCP["mcp/<br/>MCP 协议"]
+            Models["models/<br/>数据模型"]
+            Runtime["runtime/<br/>运行时"]
+            Sandbox["sandbox/<br/>沙箱"]
+            Skills["skills/<br/>技能"]
+            Sub["subagents/<br/>子代理"]
+            Tools["tools/<br/>工具"]
+            Trace["tracing/<br/>追踪"]
+            Persist["persistence/<br/>持久化"]
+        end
+    end
+
+    Main --> Gateway & Channels
+    Gateway --> Harness
+    Agents --> Tools & Skills & Sub & MCP & Runtime
+    Agents --> Sandbox & Trace & Persist & Config
+
+    style Backend fill:#1a1a2e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style App fill:#1a2744,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style Harness fill:#2a1a3e,stroke:#8b5cf6,stroke-width:1px,color:#e8e8f0
+          </pre>
+        </div>
+      </div>
+
+      <div id="tree-frontend" class="tab-panel">
+        <div class="diagram-container">
+          <span class="diagram-label">Frontend Module Map</span>
+          <pre class="mermaid">
+graph TB
+    subgraph Frontend["frontend/src/"]
+        subgraph Pages["app/ - 页面路由"]
+            AuthPage["(auth)/<br/>登录/初始化"]
+            WorkspacePage["workspace/<br/>主工作台"]
+            APIRoutes["api/<br/>BFF 接口"]
+            BlogPage["blog/<br/>文档博客"]
+        end
+
+        subgraph Components["components/ - UI 组件"]
+            ChatComp["ChatInterface"]
+            AgentComp["AgentPanel"]
+            SkillComp["SkillCard"]
+            ThreadComp["ThreadList"]
+            ThemeComp["ThemeToggle"]
+            FormComp["Form 组件"]
+        end
+
+        subgraph Core["core/ - 核心模块"]
+            APIClient["API Client"]
+            StateMgr["State Manager"]
+            SSEHandler["SSE Handler"]
+        end
+
+        subgraph Hooks["hooks/ - 自定义 Hooks"]
+            useAgent["useAgent()"]
+            useThread["useThread()"]
+            useMemory["useMemory()"]
+            useSkill["useSkill()"]
+        end
+
+        subgraph Lib["lib/ - 外部集成"]
+            Utils["工具函数"]
+        end
+    end
+
+    Pages --> Components & Core & Hooks
+    Components --> Hooks
+    Core --> Lib
+
+    style Frontend fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style Pages fill:#1a2a4e,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style Components fill:#1a2a4e,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style Core fill:#1a2a4e,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style Hooks fill:#1a2a4e,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+          </pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Backend Modules -->
+    <div class="section" id="backend">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(139,92,246,0.15);">🐍</div>
+        <h2>后端模块详解</h2>
+        <p>Backend Modules Detail</p>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-blue">
+          <div class="card-icon">🚪</div>
+          <h3>app/main.py - 应用入口</h3>
+          <p>FastAPI 应用实例创建，生命周期管理 (lifespan)，中间件注册，路由挂载，CORS 配置</p>
+          <div class="tech-tags">
+            <span class="tech-tag">FastAPI</span>
+            <span class="tech-tag">Lifespan</span>
+            <span class="tech-tag">Middleware</span>
+          </div>
+        </div>
+        <div class="card card-green">
+          <div class="card-icon">📡</div>
+          <h3>channels/ - IM 通道</h3>
+          <p>多平台 IM 集成层。每个平台独立模块，由 ChannelManager 统一管理，通过 MessageBus 路由消息</p>
+          <div class="tech-tags">
+            <span class="tech-tag">Discord</span>
+            <span class="tech-tag">Slack</span>
+            <span class="tech-tag">Telegram</span>
+            <span class="tech-tag">微信/企微</span>
+            <span class="tech-tag">钉钉</span>
+            <span class="tech-tag">飞书</span>
+          </div>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">🔀</div>
+          <h3>gateway/routers/ - API 路由</h3>
+          <p>RESTful API 端点集合：代理管理、会话线程、技能加载、记忆管理、文件上传、认证授权</p>
+          <div class="tech-tags">
+            <span class="tech-tag">agents</span>
+            <span class="tech-tag">threads</span>
+            <span class="tech-tag">skills</span>
+            <span class="tech-tag">memory</span>
+            <span class="tech-tag">artifacts</span>
+          </div>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🔐</div>
+          <h3>gateway/auth/ - 认证系统</h3>
+          <p>JWT Token 签发/验证，CSRF 保护，权限校验中间件，支持多用户会话管理</p>
+          <div class="tech-tags">
+            <span class="tech-tag">JWT</span>
+            <span class="tech-tag">CSRF</span>
+            <span class="tech-tag">OAuth</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Core Harness -->
+    <div class="section" id="harness">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(245,158,11,0.15);">🎯</div>
+        <h2>核心引擎 Harness</h2>
+        <p>Core Engine - packages/harness/deerflow/</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Harness Internal Architecture</span>
+        <pre class="mermaid">
+graph TB
+    subgraph Harness["packages/harness/deerflow/"]
+        subgraph Core["核心入口"]
+            Agents["agents/<br/>━━━━━━━━━━━━<br/>LeadAgent 主代理<br/>LangGraph StateGraph<br/>Middleware 中间件链<br/>Tool 调用循环"]
+            Runtime["runtime/<br/>━━━━━━━━━━━━<br/>RunManager 运行管理<br/>StreamBridge 流桥接<br/>RunJournal 运行日志<br/>EventStore 事件存储"]
+        end
+
+        subgraph Capabilities["能力模块"]
+            Tools["tools/<br/>━━━━━━━━━━━━<br/>工具装配管线<br/>Config→MCP→Builtin→Sub<br/>Bash/Read/Write/File"]
+            Skills["skills/<br/>━━━━━━━━━━━━<br/>SKILL.md 解析<br/>Frontmatter 校验<br/>安全扫描 + 动态加载"]
+            MCP["mcp/<br/>━━━━━━━━━━━━<br/>MCP Client<br/>Server 管理<br/>Tool 发现与调用"]
+            Memory["记忆 (集成于 agents)<br/>━━━━━━━━━━━━<br/>Queue→Store→Inject→Use<br/>JSON + mtime 缓存<br/>事实提取 + 衰减"]
+        end
+
+        subgraph Infra["基础设施"]
+            Sandbox["sandbox/<br/>━━━━━━━━━━━━<br/>Local Provider<br/>Docker Provider<br/>Virtual FS /mnt/"]
+            SubAgents["subagents/<br/>━━━━━━━━━━━━<br/>Task 委派 ≤3 并发<br/>双线程池架构<br/>事件驱动生命周期"]
+            Persistence["persistence/<br/>━━━━━━━━━━━━<br/>SQLAlchemy ORM<br/>多数据库后端<br/>Thread/Run/Memory"]
+            Tracing["tracing/<br/>━━━━━━━━━━━━<br/>LangSmith 集成<br/>Langfuse 集成<br/>Token 用量追踪"]
+            Config["config/<br/>━━━━━━━━━━━━<br/>YAML 配置加载<br/>模型配置管理<br/>特性开关"]
+            Models["models/<br/>━━━━━━━━━━━━<br/>Pydantic 数据模型<br/>API Schema 定义<br/>类型安全"]
+        end
+    end
+
+    Agents --> Tools & Skills & Memory & SubAgents
+    Agents --> MCP & Sandbox & Tracing
+    Runtime --> Agents & Persistence
+    Tools --> Sandbox & MCP
+    Skills --> Config
+
+    style Harness fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style Core fill:#3a2a4e,stroke:#8b5cf6,stroke-width:1px,color:#e8e8f0
+    style Capabilities fill:#33291a,stroke:#f59e0b,stroke-width:1px,color:#e8e8f0
+    style Infra fill:#1a3327,stroke:#22c55e,stroke-width:1px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-purple">
+          <div class="card-icon">🤖</div>
+          <h3>agents/ - 代理引擎</h3>
+          <p>系统最核心模块。LeadAgent 基于 LangGraph StateGraph 构建，管理完整的 LLM 调用循环。包含约 20 个中间件形成处理链，覆盖初始化、模型调用包装、后处理、工具调用包装四个阶段</p>
+          <div class="tech-tags">
+            <span class="tech-tag">LeadAgent</span>
+            <span class="tech-tag">StateGraph</span>
+            <span class="tech-tag">~20 Middlewares</span>
+            <span class="tech-tag">LLM Loop</span>
+          </div>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">⚙️</div>
+          <h3>runtime/ - 运行时管理</h3>
+          <p>RunManager 负责创建和跟踪每次运行；StreamBridge 通过有界缓冲区将后端事件桥接到前端 SSE；RunJournal 记录 LangChain 回调事件；EventStore 存储运行元数据</p>
+          <div class="tech-tags">
+            <span class="tech-tag">RunManager</span>
+            <span class="tech-tag">StreamBridge</span>
+            <span class="tech-tag">RunJournal</span>
+            <span class="tech-tag">EventStore</span>
+          </div>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🛠️</div>
+          <h3>tools/ - 工具系统</h3>
+          <p>优先级装配管线：配置工具(config.yaml) → MCP 协议工具 → 内置工具(bash/read_file/write_file/list_directory) → 子代理工具(task)。支持动态注册、权限控制、命令审计</p>
+          <div class="tech-tags">
+            <span class="tech-tag">Priority Pipeline</span>
+            <span class="tech-tag">Bash Tool</span>
+            <span class="tech-tag">File Tools</span>
+            <span class="tech-tag">Guardrails</span>
+          </div>
+        </div>
+        <div class="card card-blue">
+          <div class="card-icon">📦</div>
+          <h3>skills/ - 技能系统</h3>
+          <p>基于 SKILL.md 的声明式插件。解析流程：SKILL.md 扫描 → Frontmatter 校验 → 安全扫描 → 包安装 → 工具注入 → 动态加载。支持热重载和能力扩展</p>
+          <div class="tech-tags">
+            <span class="tech-tag">SKILL.md</span>
+            <span class="tech-tag">Frontmatter</span>
+            <span class="tech-tag">Security Scan</span>
+            <span class="tech-tag">Hot Reload</span>
+          </div>
+        </div>
+        <div class="card card-red">
+          <div class="card-icon">🔒</div>
+          <h3>sandbox/ - 沙箱引擎</h3>
+          <p>双模式安全执行：Local Provider (路径映射 + 输出遮蔽) 和 Docker Provider (容器隔离)。虚拟文件系统 /mnt/ 前缀，防止路径遍历攻击</p>
+          <div class="tech-tags">
+            <span class="tech-tag">Local Sandbox</span>
+            <span class="tech-tag">Docker Container</span>
+            <span class="tech-tag">Virtual FS</span>
+            <span class="tech-tag">Path Mapping</span>
+          </div>
+        </div>
+        <div class="card card-green">
+          <div class="card-icon">🔄</div>
+          <h3>subagents/ - 子代理</h3>
+          <p>并发任务委派系统。最大 3 个子代理并行执行，采用双线程池架构(调度器线程池 + 执行线程池)，事件驱动生命周期：started → running → completed/failed</p>
+          <div class="tech-tags">
+            <span class="tech-tag">Concurrent ≤3</span>
+            <span class="tech-tag">Dual ThreadPool</span>
+            <span class="tech-tag">Event-Driven</span>
+            <span class="tech-tag">task()</span>
+          </div>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">🔌</div>
+          <h3>mcp/ - MCP 协议</h3>
+          <p>Model Context Protocol 客户端实现。管理外部 MCP Server 连接，自动发现可用工具，支持工具调用、资源访问等协议功能</p>
+          <div class="tech-tags">
+            <span class="tech-tag">MCP Client</span>
+            <span class="tech-tag">Tool Discovery</span>
+            <span class="tech-tag">Server Management</span>
+          </div>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">💾</div>
+          <h3>persistence/ - 持久化</h3>
+          <p>SQLAlchemy ORM 抽象层，支持多数据库后端(PostgreSQL/SQLite)。管理 Thread(会话)、Run(运行)、Memory(记忆) 等核心实体</p>
+          <div class="tech-tags">
+            <span class="tech-tag">SQLAlchemy</span>
+            <span class="tech-tag">PostgreSQL</span>
+            <span class="tech-tag">Multi-Backend</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- IM Channels -->
+    <div class="section" id="channels">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(6,182,212,0.15);">💬</div>
+        <h2>IM 通道集成</h2>
+        <p>IM Channel Integrations</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Channel Architecture</span>
+        <pre class="mermaid">
+graph TB
+    subgraph Incoming["📥 消息入口"]
+        UserIM["用户 IM 消息"]
+        WebUI["Web UI 消息"]
+    end
+
+    subgraph Bus["MessageBus 消息总线"]
+        Router["消息路由器"]
+        Queue["消息队列"]
+        Dispatcher["分发器"]
+    end
+
+    subgraph Manager["ChannelManager"]
+        Reg["通道注册/注销"]
+        Health["健康检查"]
+        Config["通道配置"]
+    end
+
+    subgraph Platforms["IM 平台适配器"]
+        Discord["Discord<br/>Bot API"]
+        Slack["Slack<br/>Bolt SDK"]
+        Telegram["Telegram<br/>Bot API"]
+        WeChat["微信<br/>Official API"]
+        WeCom["企业微信<br/>Callback"]
+        DingTalk["钉钉<br/>Stream API"]
+        Feishu["飞书<br/>Event Subscription"]
+    end
+
+    subgraph Processing["消息处理"]
+        Normalize["消息标准化"]
+        Auth["用户认证"]
+        ToAgent["转发至 Agent"]
+    end
+
+    Incoming --> Bus --> Manager --> Platforms
+    Bus --> Processing
+    Processing --> ToAgent
+
+    style Incoming fill:#1a2744,stroke:#4f8ff7,stroke-width:1px,color:#e8e8f0
+    style Bus fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style Manager fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style Platforms fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style Processing fill:#1a2a3e,stroke:#06b6d4,stroke-width:1px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-blue">
+          <div class="card-icon">🎮</div>
+          <h3>Discord</h3>
+          <p>Discord Bot API 集成，支持频道消息、DM、Slash 命令</p>
+          <div class="tech-tags"><span class="tech-tag">Bot API</span><span class="tech-tag">Gateway</span></div>
+        </div>
+        <div class="card card-green">
+          <div class="card-icon">💼</div>
+          <h3>Slack</h3>
+          <p>Slack Bolt SDK 集成，支持事件订阅、交互式组件</p>
+          <div class="tech-tags"><span class="tech-tag">Bolt SDK</span><span class="tech-tag">Events API</span></div>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">✈️</div>
+          <h3>Telegram</h3>
+          <p>Telegram Bot API 集成，支持内联查询、回调</p>
+          <div class="tech-tags"><span class="tech-tag">Bot API</span><span class="tech-tag">Webhook</span></div>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">💬</div>
+          <h3>微信 / 企微</h3>
+          <p>微信公众号/企业微信回调集成，支持文本、图片、事件消息</p>
+          <div class="tech-tags"><span class="tech-tag">Official API</span><span class="tech-tag">Callback</span></div>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">📌</div>
+          <h3>钉钉</h3>
+          <p>钉钉 Stream API 集成，支持企业内部应用消息</p>
+          <div class="tech-tags"><span class="tech-tag">Stream API</span><span class="tech-tag">ISV</span></div>
+        </div>
+        <div class="card card-red">
+          <div class="card-icon">🐦</div>
+          <h3>飞书</h3>
+          <p>飞书事件订阅集成，支持卡片消息、机器人对话</p>
+          <div class="tech-tags"><span class="tech-tag">Event Sub</span><span class="tech-tag">Card Message</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>🦌 DeerFlow Module Structure · Generated with Mermaid.js</p>
+      <p style="margin-top:0.5rem;"><a href="architecture.html" style="color:var(--accent-blue);text-decoration:none;">← 返回架构总览</a></p>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#1a1a2e',
+        primaryTextColor: '#e8e8f0',
+        primaryBorderColor: '#4f8ff7',
+        lineColor: '#666688',
+        secondaryColor: '#2a2a4a',
+        tertiaryColor: '#1a1a2e',
+        fontFamily: 'Inter, sans-serif',
+        fontSize: '13px',
+        clusterBkg: '#12121a',
+        clusterBorder: '#2a2a4a',
+        titleColor: '#e8e8f0',
+        edgeLabelBackground: '#1a1a2e',
+      },
+      flowchart: { htmlLabels: true, curve: 'basis', padding: 15 },
+    });
+
+    function switchTab(event, tabId) {
+      const container = event.target.closest('.section');
+      container.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      container.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+      setTimeout(() => {
+        const panel = document.getElementById(tabId);
+        panel.querySelectorAll('.mermaid:not([data-processed])').forEach(el => {
+          mermaid.run({ nodes: [el] });
+        });
+      }, 100);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeerFlow - 架构文档导航</title>
+  <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #0a0a0f; --bg-secondary: #12121a; --bg-card: #1a1a2e; --border: #2a2a4a;
+      --text-primary: #e8e8f0; --text-secondary: #9999b8; --text-muted: #666688;
+      --accent-blue: #4f8ff7; --accent-purple: #8b5cf6; --accent-green: #22c55e;
+      --accent-orange: #f59e0b; --accent-red: #ef4444; --accent-cyan: #06b6d4; --accent-pink: #ec4899;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.7; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(ellipse, rgba(79,143,247,0.06) 0%, rgba(139,92,246,0.03) 40%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero::after {
+      content: '';
+      position: absolute;
+      bottom: -10%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(34,197,94,0.04) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.375rem 1rem;
+      background: rgba(79,143,247,0.1);
+      border: 1px solid rgba(79,143,247,0.2);
+      border-radius: 100px;
+      font-size: 0.8rem;
+      color: var(--accent-blue);
+      margin-bottom: 2rem;
+      font-weight: 500;
+    }
+
+    .hero-icon {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, rgba(79,143,247,0.2), rgba(139,92,246,0.2));
+      border: 1px solid rgba(79,143,247,0.3);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.5rem;
+      margin-bottom: 2rem;
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+
+    .hero h1 {
+      font-size: 4rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, #e8e8f0 0%, #9999b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero .subtitle {
+      font-size: 1.3rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin: 0 auto 3rem;
+      line-height: 1.8;
+    }
+    .hero .version {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+    }
+
+    .nav-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1.5rem;
+      max-width: 1100px;
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+
+    .nav-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 2rem;
+      text-decoration: none;
+      color: var(--text-primary);
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+      display: block;
+    }
+    .nav-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      border-radius: 18px 18px 0 0;
+    }
+    .nav-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+    }
+
+    .nav-card .card-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .nav-card .card-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      background: rgba(255,255,255,0.05);
+      padding: 0.25rem 0.5rem;
+      border-radius: 6px;
+    }
+    .nav-card .card-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+    }
+    .nav-card h3 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    .nav-card .card-desc {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      line-height: 1.7;
+      margin-bottom: 1.25rem;
+    }
+    .nav-card .card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.375rem;
+    }
+    .nav-card .card-tag {
+      font-size: 0.7rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.05);
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .nav-card .card-arrow {
+      position: absolute;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      transition: all 0.3s;
+    }
+    .nav-card:hover .card-arrow {
+      color: var(--text-primary);
+      transform: translateX(4px);
+    }
+
+    /* Colors */
+    .nav-card.card-1::before { background: linear-gradient(135deg, #4f8ff7, #8b5cf6); }
+    .nav-card.card-1 .card-icon { background: rgba(79,143,247,0.15); }
+    .nav-card.card-1:hover { border-color: rgba(79,143,247,0.4); }
+
+    .nav-card.card-2::before { background: linear-gradient(135deg, #22c55e, #06b6d4); }
+    .nav-card.card-2 .card-icon { background: rgba(34,197,94,0.15); }
+    .nav-card.card-2:hover { border-color: rgba(34,197,94,0.4); }
+
+    .nav-card.card-3::before { background: linear-gradient(135deg, #f59e0b, #ef4444); }
+    .nav-card.card-3 .card-icon { background: rgba(245,158,11,0.15); }
+    .nav-card.card-3:hover { border-color: rgba(245,158,11,0.4); }
+
+    .nav-card.card-4::before { background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+    .nav-card.card-4 .card-icon { background: rgba(139,92,246,0.15); }
+    .nav-card.card-4:hover { border-color: rgba(139,92,246,0.4); }
+
+    .tech-strip {
+      margin-top: 4rem;
+      padding: 1.5rem 2rem;
+      background: var(--bg-card);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      max-width: 1100px;
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+    .tech-strip h4 {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 1rem;
+    }
+    .tech-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+    .tech-item {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      padding: 0.4rem 1rem;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .tech-item:hover {
+      background: rgba(79,143,247,0.1);
+      border-color: rgba(79,143,247,0.2);
+      color: var(--text-primary);
+    }
+
+    .footer {
+      text-align: center;
+      padding: 2rem 0 3rem;
+      position: relative;
+      z-index: 1;
+    }
+    .footer p { color: var(--text-muted); font-size: 0.8rem; }
+
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2.5rem; }
+      .nav-cards { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <div class="hero-badge">
+      <span>📖</span> Open Source Architecture Documentation
+    </div>
+    <div class="hero-icon">🦌</div>
+    <h1>DeerFlow<br/>Architecture Docs</h1>
+    <p class="subtitle">
+      基于 LangGraph 的开源超级 Agent 编排框架<br/>
+      系统架构 · 模块结构 · 数据流 · 定制化操作地图 文档全景
+    </p>
+
+    <div class="nav-cards">
+      <a href="architecture.html" class="nav-card card-1">
+        <div class="card-header">
+          <div class="card-icon">🏗️</div>
+          <span class="card-num">DOC 01</span>
+        </div>
+        <h3>系统架构总览</h3>
+        <p class="card-desc">六层架构全景：表现层 → 接入层 → 应用层 → 编排层 → 领域层 → 基础设施层。技术栈、分层架构、中间件链、部署架构</p>
+        <div class="card-tags">
+          <span class="card-tag">High-Level</span>
+          <span class="card-tag">Tech Stack</span>
+          <span class="card-tag">Deployment</span>
+          <span class="card-tag">Middleware</span>
+        </div>
+        <span class="card-arrow">→</span>
+      </a>
+
+      <a href="module-structure.html" class="nav-card card-2">
+        <div class="card-header">
+          <div class="card-icon">📦</div>
+          <span class="card-num">DOC 02</span>
+        </div>
+        <h3>模块结构与目录</h3>
+        <p class="card-desc">完整的项目目录结构解析，后端模块详解、核心引擎 Harness 内部架构、IM 通道集成方案、前端模块组织</p>
+        <div class="card-tags">
+          <span class="card-tag">Directory</span>
+          <span class="card-tag">Backend</span>
+          <span class="card-tag">Frontend</span>
+          <span class="card-tag">Harness</span>
+        </div>
+        <span class="card-arrow">→</span>
+      </a>
+
+      <a href="data-flow.html" class="nav-card card-3">
+        <div class="card-header">
+          <div class="card-icon">🌊</div>
+          <span class="card-num">DOC 03</span>
+        </div>
+        <h3>数据流与生命周期</h3>
+        <p class="card-desc">从用户输入到响应输出的完整数据流转：请求生命周期、Agent 执行循环、SSE 流式推送、工具装配管线、记忆系统</p>
+        <div class="card-tags">
+          <span class="card-tag">Request Flow</span>
+          <span class="card-tag">Agent Loop</span>
+          <span class="card-tag">SSE Stream</span>
+          <span class="card-tag">Memory</span>
+        </div>
+        <span class="card-arrow">→</span>
+      </a>
+
+      <a href="customization-guide.html" class="nav-card card-4">
+        <div class="card-header">
+          <div class="card-icon">🗺️</div>
+          <span class="card-num">DOC 04</span>
+        </div>
+        <h3>定制化操作地图</h3>
+        <p class="card-desc">7 大可控扩展点（Prompt/中间件/模型/Skills/Tools/子代理/MCP），含月度简报助手端到端实战案例</p>
+        <div class="card-tags">
+          <span class="card-tag">Extension Points</span>
+          <span class="card-tag">Skills</span>
+          <span class="card-tag">Case Study</span>
+          <span class="card-tag">config.yaml</span>
+        </div>
+        <span class="card-arrow">→</span>
+      </a>
+    </div>
+
+    <div class="tech-strip">
+      <h4>🛠️ 技术栈 / Tech Stack</h4>
+      <div class="tech-items">
+        <span class="tech-item">Next.js 16</span>
+        <span class="tech-item">React 19</span>
+        <span class="tech-item">FastAPI</span>
+        <span class="tech-item">LangGraph</span>
+        <span class="tech-item">LangChain</span>
+        <span class="tech-item">Python 3.12+</span>
+        <span class="tech-item">TypeScript</span>
+        <span class="tech-item">Tailwind CSS</span>
+        <span class="tech-item">Radix UI</span>
+        <span class="tech-item">SQLAlchemy</span>
+        <span class="tech-item">Docker</span>
+        <span class="tech-item">JWT</span>
+        <span class="tech-item">SSE</span>
+        <span class="tech-item">MCP Protocol</span>
+        <span class="tech-item">Mermaid.js</span>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>🦌 DeerFlow Architecture Documentation · Built with Mermaid.js · Dark Theme</p>
+    </div>
+  </div>
+</body>
+</html>
