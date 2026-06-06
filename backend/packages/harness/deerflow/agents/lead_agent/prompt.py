@@ -1,47 +1,3 @@
-"""系统提示词模板构建与技能缓存管理。
-
-本模块负责两个核心职责：
-1. 构建 Agent 的系统提示词（apply_prompt_template）
-2. 管理技能缓存（enabled skills cache），确保请求路径无阻塞 I/O
-
-系统提示词架构设计：
-  提示词被设计为**完全静态**（跨用户、跨会话相同），
-  以最大化 LLM 前缀缓存（prefix-cache）命中率。
-  用户相关的内容（记忆、日期）通过 DynamicContextMiddleware
-  作为 <system-reminder> 注入到第一条 HumanMessage，
-  而非写入系统提示词。
-
-提示词模板组成：
-  SYSTEM_PROMPT_TEMPLATE 包含以下可变区域：
-  - {agent_name}：Agent 名称（默认 "DeerFlow 2.0"，自定义 Agent 使用配置名称）
-  - {soul}：SOUL.md 个性描述（仅自定义 Agent）
-  - {self_update_section}：自我更新指令（仅自定义 Agent）
-  - {skills_section}：可用技能列表 + 渐进式加载模式说明
-  - {deferred_tools_section}：延迟工具名列表（tool_search 启用时）
-  - {subagent_section}：子代理系统提示（包含并发限制、多批次策略）
-  - {acp_section}：ACP Agent 路径说明 + 自定义挂载目录
-
-技能缓存机制：
-  - 模块导入时调用 prime_enabled_skills_cache() 触发后台线程加载
-  - 后台线程：_refresh_enabled_skills_cache_worker() 从 SkillStorage 读取
-  - 版本化失效：_enabled_skills_refresh_version 递增时重新加载
-  - per-config 缓存：get_enabled_skills_for_config() 按 app_config 身份缓存
-  - lru_cache 缓存：_get_cached_skills_prompt_section() 缓存格式化后的技能段落
-
-子代理提示词构建：
-  _build_subagent_section() 动态生成子代理系统提示，包括：
-  - 并发限制（默认 3，可配置）
-  - 多批次执行策略（超出限制时分批）
-  - 可用子代理列表（从 subagents 注册表动态获取）
-
-依赖关系：
-  - config/agents_config.py：Agent SOUL.md 加载
-  - skills/：技能存储与类型
-  - subagents/：子代理注册表
-  - tools/builtins/tool_search.py：延迟工具注册表
-  - config/acp_config.py：ACP Agent 配置
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -91,8 +47,7 @@ def _refresh_enabled_skills_cache_worker() -> None:
         try:
             skills = _load_enabled_skills_sync()
         except Exception:
-            logger.exception(
-                "Failed to load enabled skills for prompt injection")
+            logger.exception("Failed to load enabled skills for prompt injection")
             skills = []
 
         with _enabled_skills_lock:
@@ -148,8 +103,7 @@ def warm_enabled_skills_cache(timeout_seconds: float = _ENABLED_SKILLS_REFRESH_W
     if _ensure_enabled_skills_cache().wait(timeout=timeout_seconds):
         return True
 
-    logger.warning(
-        "Timed out waiting %.1fs for enabled skills cache warm-up", timeout_seconds)
+    logger.warning("Timed out waiting %.1fs for enabled skills cache warm-up", timeout_seconds)
     return False
 
 
@@ -192,8 +146,7 @@ def get_enabled_skills_for_config(app_config: AppConfig | None = None) -> list[S
             if cached_config is app_config:
                 return list(cached_skills)
 
-    skills = list(get_or_new_skill_storage(
-        app_config=app_config).load_skills(enabled_only=True))
+    skills = list(get_or_new_skill_storage(app_config=app_config).load_skills(enabled_only=True))
     with _enabled_skills_lock:
         _enabled_skills_by_config_cache[cache_key] = (app_config, skills)
     return list(skills)
@@ -251,8 +204,7 @@ def _build_available_subagents_description(available_names: list[str], bash_avai
         else:
             config = get_subagent_config(name, app_config=app_config)
             if config is not None:
-                # First line only for brevity
-                desc = config.description.split("\n")[0].strip()
+                desc = config.description.split("\n")[0].strip()  # First line only for brevity
                 lines.append(f"- **{name}**: {desc}")
 
     return "\n".join(lines)
@@ -268,14 +220,12 @@ def _build_subagent_section(max_concurrent: int, *, app_config: AppConfig | None
         Formatted subagent section string.
     """
     n = max_concurrent
-    available_names = get_available_subagent_names(
-        app_config=app_config) if app_config is not None else get_available_subagent_names()
+    available_names = get_available_subagent_names(app_config=app_config) if app_config is not None else get_available_subagent_names()
     bash_available = "bash" in available_names
 
     # Dynamically build subagent type descriptions from registry (aligned with Codex's
     # agent_type_description pattern where all registered roles are listed in the tool spec).
-    available_subagents = _build_available_subagents_description(
-        available_names, bash_available, app_config=app_config)
+    available_subagents = _build_available_subagents_description(available_names, bash_available, app_config=app_config)
     direct_tool_examples = "bash, ls, read_file, web_search, etc." if bash_available else "ls, read_file, web_search, etc."
     direct_execution_example = (
         '# User asks: "Run the tests"\n# Thinking: Cannot decompose into parallel sub-tasks\n# → Execute directly\n\nbash("npm test")  # Direct execution, not task()'
@@ -626,10 +576,8 @@ def _get_memory_context(agent_name: str | None = None, *, app_config: AppConfig 
         if not config.enabled or not config.injection_enabled:
             return ""
 
-        memory_data = get_memory_data(
-            agent_name, user_id=get_effective_user_id())
-        memory_content = format_memory_for_injection(
-            memory_data, max_tokens=config.max_injection_tokens)
+        memory_data = get_memory_data(agent_name, user_id=get_effective_user_id())
+        memory_content = format_memory_for_injection(memory_data, max_tokens=config.max_injection_tokens)
 
         if not memory_content.strip():
             return ""
@@ -650,8 +598,7 @@ def _get_cached_skills_prompt_section(
     container_base_path: str,
     skill_evolution_section: str,
 ) -> str:
-    filtered = [(name, description, category, location) for name, description, category,
-                location in skill_signature if available_skills_key is None or name in available_skills_key]
+    filtered = [(name, description, category, location) for name, description, category, location in skill_signature if available_skills_key is None or name in available_skills_key]
     skills_list = ""
     if filtered:
         skill_items = "\n".join(
@@ -701,14 +648,11 @@ def get_skills_prompt_section(available_skills: set[str] | None = None, *, app_c
     if available_skills is not None and not any(skill.name in available_skills for skill in skills):
         return ""
 
-    skill_signature = tuple((skill.name, skill.description, skill.category,
-                            skill.get_container_file_path(container_base_path)) for skill in skills)
-    available_key = tuple(sorted(available_skills)
-                          ) if available_skills is not None else None
+    skill_signature = tuple((skill.name, skill.description, skill.category, skill.get_container_file_path(container_base_path)) for skill in skills)
+    available_key = tuple(sorted(available_skills)) if available_skills is not None else None
     if not skill_signature and available_key is not None:
         return ""
-    skill_evolution_section = _build_skill_evolution_section(
-        skill_evolution_enabled)
+    skill_evolution_section = _build_skill_evolution_section(skill_evolution_enabled)
     return _get_cached_skills_prompt_section(skill_signature, available_key, container_base_path, skill_evolution_section)
 
 
@@ -734,39 +678,23 @@ SOUL.md or config.yaml — those write into a temporary sandbox/tool workspace a
 Rules:
 - Always pass the FULL replacement text for `soul` (no patch semantics). Start from your current SOUL above and apply the user's edits.
 - Only pass the fields that should change. Omit the others to preserve them.
+- Never pass literal strings like `"null"`, `"none"`, or `"undefined"` for unchanged fields.
 - Pass `skills=[]` to disable all skills, or omit `skills` to keep the existing whitelist.
 - After `update_agent` returns successfully, tell the user the change is persisted and will take effect on the next turn.
 </self_update>
 """
 
 
-def get_deferred_tools_prompt_section(*, app_config: AppConfig | None = None) -> str:
-    """Generate <available-deferred-tools> block for the system prompt.
+def get_deferred_tools_prompt_section(*, deferred_names: frozenset[str] = frozenset()) -> str:
+    """Generate <available-deferred-tools> from an explicit deferred-name set.
 
-    Lists only deferred tool names so the agent knows what exists
-    and can use tool_search to load them.
-    Returns empty string when tool_search is disabled or no tools are deferred.
+    Lists only names so the agent knows what exists and can use tool_search to
+    load them. Returns empty string when there are no deferred tools. The set is
+    computed at agent build time (after tool-policy filtering) and passed in.
     """
-    from deerflow.tools.builtins.tool_search import get_deferred_registry
-
-    if app_config is None:
-        try:
-            from deerflow.config import get_app_config
-
-            config = get_app_config()
-        except Exception:
-            return ""
-    else:
-        config = app_config
-
-    if not config.tool_search.enabled:
+    if not deferred_names:
         return ""
-
-    registry = get_deferred_registry()
-    if not registry:
-        return ""
-
-    names = "\n".join(e.name for e in registry.entries)
+    names = "\n".join(sorted(deferred_names))
     return f"<available-deferred-tools>\n{names}\n</available-deferred-tools>"
 
 
@@ -802,8 +730,7 @@ def _build_custom_mounts_section(*, app_config: AppConfig | None = None) -> str:
 
             config = get_app_config()
         except Exception:
-            logger.exception(
-                "Failed to load configured sandbox mounts for the lead-agent prompt")
+            logger.exception("Failed to load configured sandbox mounts for the lead-agent prompt")
             return ""
     else:
         config = app_config
@@ -816,8 +743,7 @@ def _build_custom_mounts_section(*, app_config: AppConfig | None = None) -> str:
     lines = []
     for mount in mounts:
         access = "read-only" if mount.read_only else "read-write"
-        lines.append(
-            f"- Custom mount: `{mount.container_path}` - Host directory mapped into the sandbox ({access})")
+        lines.append(f"- Custom mount: `{mount.container_path}` - Host directory mapped into the sandbox ({access})")
 
     mounts_list = "\n".join(lines)
     return f"\n**Custom Mounted Directories:**\n{mounts_list}\n- If the user needs files outside `/mnt/user-data`, use these absolute container paths directly when they match the requested directory"
@@ -830,11 +756,11 @@ def apply_prompt_template(
     agent_name: str | None = None,
     available_skills: set[str] | None = None,
     app_config: AppConfig | None = None,
+    deferred_names: frozenset[str] = frozenset(),
 ) -> str:
     # Include subagent section only if enabled (from runtime parameter)
     n = max_concurrent_subagents
-    subagent_section = _build_subagent_section(
-        n, app_config=app_config) if subagent_enabled else ""
+    subagent_section = _build_subagent_section(n, app_config=app_config) if subagent_enabled else ""
 
     # Add subagent reminder to critical_reminders if enabled
     subagent_reminder = (
@@ -855,18 +781,15 @@ def apply_prompt_template(
     )
 
     # Get skills section
-    skills_section = get_skills_prompt_section(
-        available_skills, app_config=app_config)
+    skills_section = get_skills_prompt_section(available_skills, app_config=app_config)
 
     # Get deferred tools section (tool_search)
-    deferred_tools_section = get_deferred_tools_prompt_section(
-        app_config=app_config)
+    deferred_tools_section = get_deferred_tools_prompt_section(deferred_names=deferred_names)
 
     # Build ACP agent section only if ACP agents are configured
     acp_section = _build_acp_section(app_config=app_config)
     custom_mounts_section = _build_custom_mounts_section(app_config=app_config)
-    acp_and_mounts_section = "\n".join(section for section in (
-        acp_section, custom_mounts_section) if section)
+    acp_and_mounts_section = "\n".join(section for section in (acp_section, custom_mounts_section) if section)
 
     # Build and return the fully static system prompt.
     # Memory and current date are injected per-turn via DynamicContextMiddleware
