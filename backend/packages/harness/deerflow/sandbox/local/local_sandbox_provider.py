@@ -104,6 +104,7 @@ class LocalSandboxProvider(SandboxProvider):
 
     # 标识此 Provider 使用每线程的数据挂载
     uses_thread_data_mounts = True
+    needs_upload_permission_adjustment = False
 
     def __init__(self, max_cached_threads: int = DEFAULT_MAX_CACHED_THREAD_SANDBOXES):
         """初始化本地沙箱提供者。

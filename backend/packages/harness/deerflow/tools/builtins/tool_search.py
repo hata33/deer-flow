@@ -1,283 +1,181 @@
-"""延迟工具搜索（Deferred Tool Search）
+"""Tool search — deferred tool discovery at runtime.
 
-本模块实现了延迟工具发现机制，允许代理按需发现和加载工具，而非一次性加载所有工具。
+Contains:
+- DeferredToolCatalog: immutable, searchable catalog of deferred tools.
+- build_tool_search_tool: builds the `tool_search` tool as a closure over a
+  catalog; it records promotions into graph state via ``Command``.
+- build_deferred_tool_setup: assembles the catalog + tool from a
+  policy-filtered tool list (call AFTER tool-policy filtering).
 
-核心概念：
---------
-**延迟工具**（Deferred Tool）是指工具名称已告知代理，但完整的参数 schema 尚未暴露的工具。
-代理在系统提示的 `<available-deferred-tools>` 中可以看到这些工具的名称，
-但无法调用它们——直到通过 `tool_search` 工具获取完整的 schema 定义。
-
-为什么需要延迟加载？
-------------------
-1. **减少上下文占用**：大量 MCP 工具的完整 schema 会占用宝贵的上下文窗口
-2. **按需加载**：代理只在需要时才加载特定工具的详细定义
-3. **提高效率**：减少每次模型调用时需要处理的 token 数量
-
-延迟工具注册表（DeferredToolRegistry）：
---------------------------------------
-- 存储所有延迟工具的元数据（名称、描述、完整工具对象）
-- 支持三种搜索模式：
-  1. `select:name1,name2` — 按名称精确匹配
-  2. `+keyword rest` — 名称必须包含 keyword，按剩余关键词排序
-  3. `keyword query` — 正则匹配名称和描述
-
-工具提升（Promotion）机制：
-------------------------
-当 `tool_search` 返回某个工具的 schema 后：
-1. 该工具从注册表中移除（promote）
-2. `DeferredToolFilterMiddleware` 不再从 bind_tools 中过滤它
-3. 代理在后续模型调用中获得完整的工具定义并可以调用
-
-请求级隔离（ContextVar）：
------------------------
-使用 `contextvars.ContextVar` 存储注册表实例，确保：
-- 每个异步请求有独立的注册表（防止并发请求互相干扰）
-- 子代理重入调用时复用父代理的注册表（保留已提升的工具）
-- 同步工具通过 loop.run_in_executor 执行时正确继承 ContextVar
-
-模块结构：
---------
-- `DeferredToolEntry`：延迟工具条目的轻量级元数据
-- `DeferredToolRegistry`：延迟工具注册表，支持正则搜索
-- `tool_search`：代理可调用的工具搜索 LangChain 工具
-- `get/set/reset_deferred_registry`：注册表的 ContextVar 访问器
+The agent sees deferred tool names in <available-deferred-tools> but cannot
+call them until it fetches their full schema via the tool_search tool. The
+deferred set rides on a build-time closure and promotion lives in per-thread
+graph state — there is no ContextVar. Source-agnostic: a tool is "deferred"
+when it carries the ``deerflow_mcp`` metadata tag.
 """
 
-import contextvars
+import hashlib
 import json
 import logging
 import re
 from dataclasses import dataclass
+from functools import cached_property
+from typing import Annotated
 
 from langchain.tools import BaseTool
-from langchain_core.tools import tool
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import InjectedToolCallId, tool
 from langchain_core.utils.function_calling import convert_to_openai_function
+from langgraph.types import Command
+
+from deerflow.tools.mcp_metadata import is_mcp_tool
 
 logger = logging.getLogger(__name__)
 
-# 每次搜索返回的最大工具数量
-MAX_RESULTS = 5
+MAX_RESULTS = 5  # Max tools returned per search
 
 
-# ── 注册表 ──
+def _compile_catalog_regex(pattern: str) -> re.Pattern[str]:
+    """Compile ``pattern`` case-insensitively, falling back to a literal match.
 
-
-@dataclass
-class DeferredToolEntry:
-    """延迟工具的轻量级元数据条目。
-
-    不包含完整的参数 schema（避免在上下文中占用过多空间），
-    只保留名称和描述供搜索匹配使用。完整的工具对象在搜索匹配后返回。
-
-    Attributes:
-        name: 工具名称
-        description: 工具描述
-        tool: 完整的工具对象，仅在搜索匹配时返回
-    """
-
-    name: str
-    description: str
-    tool: BaseTool  # 完整工具对象，仅在搜索匹配时返回
-
-
-class DeferredToolRegistry:
-    """延迟工具注册表，支持正则搜索。
-
-    管理所有延迟加载的工具，提供搜索和提升功能。
-
-    搜索模式：
-    1. select: 精确名称匹配（逗号分隔）
-    2. +keyword: 名称包含 keyword，按剩余关键词排序
-    3. 通用正则搜索：匹配名称和描述
-
-    提升机制：
-    promote() 从注册表中移除指定名称的工具，
-    使其通过 DeferredToolFilterMiddleware 的过滤。
-    """
-
-    def __init__(self):
-        self._entries: list[DeferredToolEntry] = []
-
-    def register(self, tool: BaseTool) -> None:
-        """注册一个延迟工具。
-
-        从工具对象中提取名称和描述，创建轻量级条目。
-        """
-        self._entries.append(
-            DeferredToolEntry(
-                name=tool.name,
-                description=tool.description or "",
-                tool=tool,
-            )
-        )
-
-    def promote(self, names: set[str]) -> None:
-        """将工具从延迟注册表中移除（提升为活跃工具）。
-
-        在 tool_search 返回工具 schema 后调用。
-        被提升的工具将不再被 DeferredToolFilterMiddleware
-        从 bind_tools 中过滤。
-
-        Args:
-            names: 要提升的工具名称集合
-        """
-        if not names:
-            return
-        before = len(self._entries)
-        self._entries = [e for e in self._entries if e.name not in names]
-        promoted = before - len(self._entries)
-        if promoted:
-            logger.debug(f"Promoted {promoted} tool(s) from deferred to active: {names}")
-
-    def search(self, query: str) -> list[BaseTool]:
-        """按正则模式搜索延迟工具。
-
-        支持三种查询形式（与 Claude Code 对齐）：
-          - "select:name1,name2" — 精确名称匹配
-          - "+keyword rest" — 名称必须包含 keyword，按 rest 排序
-          - "keyword query" — 正则匹配名称和描述
-
-        Args:
-            query: 搜索查询字符串
-
-        Returns:
-            匹配的 BaseTool 对象列表（最多 MAX_RESULTS 个）
-        """
-        # 模式一：精确名称选择
-        if query.startswith("select:"):
-            names = {n.strip() for n in query[7:].split(",")}
-            return [e.tool for e in self._entries if e.name in names][:MAX_RESULTS]
-
-        # 模式二：名称包含关键词 + 排序
-        if query.startswith("+"):
-            parts = query[1:].split(None, 1)
-            required = parts[0].lower()
-            candidates = [e for e in self._entries if required in e.name.lower()]
-            if len(parts) > 1:
-                candidates.sort(
-                    key=lambda e: _regex_score(parts[1], e),
-                    reverse=True,
-                )
-            return [e.tool for e in candidates][:MAX_RESULTS]
-
-        # 模式三：通用正则搜索
-        try:
-            regex = re.compile(query, re.IGNORECASE)
-        except re.error:
-            # 无效正则：转义后重新编译
-            regex = re.compile(re.escape(query), re.IGNORECASE)
-
-        scored = []
-        for entry in self._entries:
-            searchable = f"{entry.name} {entry.description}"
-            if regex.search(searchable):
-                # 名称匹配得分更高（2分），描述匹配得分较低（1分）
-                score = 2 if regex.search(entry.name) else 1
-                scored.append((score, entry))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [entry.tool for _, entry in scored][:MAX_RESULTS]
-
-    @property
-    def entries(self) -> list[DeferredToolEntry]:
-        """返回所有延迟工具条目的副本。"""
-        return list(self._entries)
-
-    @property
-    def deferred_names(self) -> set[str]:
-        """返回仍处于延迟状态的工具名称集合。"""
-        return {entry.name for entry in self._entries}
-
-    def contains(self, name: str) -> bool:
-        """检查指定名称的工具是否仍处于延迟状态。"""
-        return any(entry.name == name for entry in self._entries)
-
-    def __len__(self) -> int:
-        return len(self._entries)
-
-
-def _regex_score(pattern: str, entry: DeferredToolEntry) -> int:
-    """计算正则模式在工具条目中的匹配得分（用于排序）。
-
-    返回模式在名称和描述中匹配到的总次数。
+    Search queries come from the model, so an invalid regex (e.g. an unbalanced
+    paren) must degrade to a literal substring match rather than raise.
     """
     try:
-        regex = re.compile(pattern, re.IGNORECASE)
+        return re.compile(pattern, re.IGNORECASE)
     except re.error:
-        regex = re.compile(re.escape(pattern), re.IGNORECASE)
-    return len(regex.findall(f"{entry.name} {entry.description}"))
+        return re.compile(re.escape(pattern), re.IGNORECASE)
 
 
-# ── 每请求注册表（ContextVar） ──
-#
-# 使用 ContextVar 而非模块级全局变量，防止并发请求互相干扰。
-# 在基于 asyncio 的 LangGraph 中，每个图运行在独立的异步上下文中执行，
-# 因此每个请求获得独立的注册表值。对于通过 loop.run_in_executor 运行
-# 的同步工具，Python 会将当前上下文复制到工作线程，
-# 因此 ContextVar 值能正确继承。
-
-_registry_var: contextvars.ContextVar[DeferredToolRegistry | None] = contextvars.ContextVar("deferred_tool_registry", default=None)
+# ── Catalog ──
 
 
-def get_deferred_registry() -> DeferredToolRegistry | None:
-    """获取当前异步上下文的延迟工具注册表。"""
-    return _registry_var.get()
+# NOTE: frozen=True without slots=True keeps __dict__, which is what lets the
+# @cached_property fields below cache (they write to instance.__dict__, bypassing
+# the frozen __setattr__). Do NOT add slots=True or hash/names break at runtime.
+@dataclass(frozen=True)
+class DeferredToolCatalog:
+    """Immutable catalog of deferred tools. Pure search, no mutation."""
+
+    tools: tuple[BaseTool, ...]
+
+    @cached_property
+    def names(self) -> frozenset[str]:
+        return frozenset(t.name for t in self.tools)
+
+    @cached_property
+    def hash(self) -> str:
+        canon = [{"name": t.name, "schema": convert_to_openai_function(t)} for t in sorted(self.tools, key=lambda t: t.name)]
+        blob = json.dumps(canon, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+    def search(self, query: str) -> list[BaseTool]:
+        query = query.strip()
+        if not query:
+            return []
+
+        if query.startswith("select:"):
+            wanted = {n.strip() for n in query[7:].split(",")}
+            return [t for t in self.tools if t.name in wanted][:MAX_RESULTS]
+
+        if query.startswith("+"):
+            parts = query[1:].split(None, 1)
+            if not parts:
+                return []  # bare "+" with no required token — nothing to require
+            required = parts[0].lower()
+            candidates = [t for t in self.tools if required in t.name.lower()]
+            if len(parts) > 1:
+                candidates.sort(key=lambda t: _catalog_regex_score(parts[1], t), reverse=True)
+            return candidates[:MAX_RESULTS]
+
+        regex = _compile_catalog_regex(query)
+        scored: list[tuple[int, BaseTool]] = []
+        for t in self.tools:
+            searchable = f"{t.name} {t.description or ''}"
+            if regex.search(searchable):
+                scored.append((2 if regex.search(t.name) else 1, t))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [t for _, t in scored][:MAX_RESULTS]
 
 
-def set_deferred_registry(registry: DeferredToolRegistry) -> None:
-    """设置当前异步上下文的延迟工具注册表。"""
-    _registry_var.set(registry)
+def _catalog_regex_score(pattern: str, t: BaseTool) -> int:
+    regex = _compile_catalog_regex(pattern)
+    return len(regex.findall(f"{t.name} {t.description or ''}"))
 
 
-def reset_deferred_registry() -> None:
-    """重置当前异步上下文的延迟工具注册表。
+# ── Setup / tool ──
 
-    通常在新的请求/图运行开始时调用。
+
+@dataclass(frozen=True)
+class DeferredToolSetup:
+    """Result of assembling deferred-tool support for one agent build.
+
+    The three fields move as a unit, so callers branch on ``tool_search_tool``:
+
+    - **Empty** ``(None, frozenset(), None)``: deferral is disabled, or no MCP
+      tool survived policy filtering. Nothing is deferred — bind tools as-is.
+    - **Populated**: ``tool_search_tool`` is appended to the agent's tools,
+      ``deferred_names`` are withheld from the model until promoted, and
+      ``catalog_hash`` scopes those promotions in graph state.
+
+    Invariant: ``tool_search_tool is None`` ⟺ ``deferred_names`` is empty ⟺
+    ``catalog_hash is None``.
     """
-    _registry_var.set(None)
+
+    tool_search_tool: BaseTool | None
+    deferred_names: frozenset[str]
+    catalog_hash: str | None
 
 
-# ── 工具 ──
+def build_tool_search_tool(catalog: DeferredToolCatalog) -> BaseTool:
+    catalog_hash = catalog.hash
+
+    @tool
+    def tool_search(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+        """Fetches full schema definitions for deferred tools so they can be called.
+
+        Deferred tools appear by name in <available-deferred-tools> in the system
+        prompt. Until fetched, only the name is known. This tool matches a query
+        against the deferred tools and returns the matched tools complete schemas;
+        once returned, a tool becomes callable.
+
+        Query forms:
+          - "select:Read,Edit" -- fetch these exact tools by name
+          - "notebook jupyter" -- keyword search, up to max_results best matches
+          - "+slack send" -- require "slack" in the name, rank by remaining terms
+        """
+        matched = catalog.search(query)[:MAX_RESULTS]
+        if not matched:
+            content, names = f"No tools found matching: {query}", []
+        else:
+            content = json.dumps([convert_to_openai_function(t) for t in matched], indent=2, ensure_ascii=False)
+            names = [t.name for t in matched]
+        return Command(
+            update={
+                "promoted": {"catalog_hash": catalog_hash, "names": names},
+                "messages": [ToolMessage(content=content, tool_call_id=tool_call_id, name="tool_search")],
+            }
+        )
+
+    return tool_search
 
 
-@tool
-def tool_search(query: str) -> str:
-    """Fetches full schema definitions for deferred tools so they can be called.
+def build_deferred_tool_setup(filtered_tools: list[BaseTool], *, enabled: bool) -> DeferredToolSetup:
+    """Build the deferred-tool setup from a POLICY-FILTERED tool list.
 
-    获取延迟工具的完整 schema 定义，使其可被调用。
+    Must be called after skill/agent tool-policy filtering so the catalog never
+    exposes a tool the current agent is not allowed to use.
 
-    延迟工具以名称形式出现在系统提示的 <available-deferred-tools> 中。
-    在获取之前，只知道名称——没有参数 schema，因此无法调用。
-    此工具接受查询，在延迟工具列表中匹配，返回匹配工具的完整定义。
-    一旦工具的 schema 出现在结果中，它就可以被调用了。
-
-    查询形式：
-      - "select:Read,Edit,Grep" — 按名称精确获取这些工具
-      - "notebook jupyter" — 关键词搜索，返回最多 max_results 个最佳匹配
-      - "+slack send" — 要求名称包含 "slack"，按剩余关键词排序
-
-    Args:
-        query: 查找延迟工具的查询。使用 "select:<工具名>" 进行
-               精确选择，或使用关键词进行搜索。
-
-    Returns:
-        匹配的工具定义，格式为 JSON 数组。
+    Returns an empty setup (see :class:`DeferredToolSetup`) in two distinct
+    cases: deferral is disabled, or it is enabled but no MCP tool survived
+    filtering.
     """
-    registry = get_deferred_registry()
-    if not registry:
-        return "No deferred tools available."
-
-    matched_tools = registry.search(query)
-    if not matched_tools:
-        return f"No tools found matching: {query}"
-
-    # 使用 LangChain 的内置序列化生成 OpenAI function 格式。
-    # 这是模型无关的：所有 LLM 都理解这种标准 schema。
-    tool_defs = [convert_to_openai_function(t) for t in matched_tools[:MAX_RESULTS]]
-
-    # 提升匹配的工具，使 DeferredToolFilterMiddleware 不再从
-    # bind_tools 中过滤它们——LLM 现在有了完整的 schema 并可以调用。
-    registry.promote({t.name for t in matched_tools[:MAX_RESULTS]})
-
-    return json.dumps(tool_defs, indent=2, ensure_ascii=False)
+    if not enabled:
+        # Deferral disabled: defer nothing; the model binds every tool as before.
+        return DeferredToolSetup(None, frozenset(), None)
+    deferred = [t for t in filtered_tools if is_mcp_tool(t)]
+    if not deferred:
+        # Enabled, but no MCP tool to defer: same empty result, different reason.
+        return DeferredToolSetup(None, frozenset(), None)
+    catalog = DeferredToolCatalog(tuple(deferred))
+    return DeferredToolSetup(build_tool_search_tool(catalog), catalog.names, catalog.hash)

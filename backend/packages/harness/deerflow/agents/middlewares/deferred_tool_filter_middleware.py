@@ -1,14 +1,15 @@
-"""延迟工具过滤中间件 — 从模型绑定中移除延迟工具的 schema。
+"""Middleware to filter deferred tool schemas from model binding.
 
-当 tool_search 启用时，MCP 工具被注册到 DeferredToolRegistry 并传递给 ToolNode
-执行，但其 schema 不应通过 bind_tools 发送给 LLM（这就是延迟的核心目的 — 节省上下文 token）。
+When tool_search is enabled, MCP tools are still passed to ToolNode for
+execution, but their schemas must NOT be sent to the LLM via bind_tools until
+the model has discovered them via tool_search. This middleware removes the
+still-deferred tools from request.tools before model binding, and blocks tool
+calls to tools that have not been promoted yet.
 
-此中间件在两个层面拦截：
-1. wrap_model_call：从 request.tools 中移除延迟工具，使 model.bind_tools 只接收活跃工具
-2. wrap_tool_call：若模型直接调用了未提升的延迟工具，返回错误 ToolMessage
-
-Agent 通过 tool_search 工具在运行时发现延迟工具，调用后工具 schema 被提升（promoted），
-后续模型调用即可正常看到该工具。
+The deferred name set and the catalog hash are injected at construction time
+(no ContextVar). Promotion state is read from graph state (``state["promoted"]``),
+scoped by catalog hash so a stale persisted promotion cannot expose a renamed
+or drifted tool.
 """
 
 import logging
@@ -26,51 +27,49 @@ logger = logging.getLogger(__name__)
 
 
 class DeferredToolFilterMiddleware(AgentMiddleware[AgentState]):
-    """Remove deferred tools from request.tools before model binding.
+    """Hide deferred tool schemas from the bound model until promoted.
 
     ToolNode still holds all tools (including deferred) for execution routing,
-    but the LLM only sees active tool schemas — deferred tools are discoverable
-    via tool_search at runtime.
+    but the LLM only sees active tool schemas plus tools that have already been
+    promoted (recorded in ``state["promoted"]`` under the current catalog hash).
     """
 
+    def __init__(self, deferred_names: frozenset[str], catalog_hash: str | None):
+        super().__init__()
+        self._deferred = deferred_names
+        self._catalog_hash = catalog_hash
+
+    def _promoted(self, state) -> set[str]:
+        promoted = (state or {}).get("promoted")
+        if promoted and promoted.get("catalog_hash") == self._catalog_hash:
+            return set(promoted.get("names") or [])
+        return set()
+
+    def _hidden(self, state) -> set[str]:
+        return set(self._deferred) - self._promoted(state)
+
     def _filter_tools(self, request: ModelRequest) -> ModelRequest:
-        from deerflow.tools.builtins.tool_search import get_deferred_registry
-
-        registry = get_deferred_registry()
-        if not registry:
+        if not self._deferred:
             return request
-
-        deferred_names = registry.deferred_names
-        active_tools = [t for t in request.tools if getattr(
-            t, "name", None) not in deferred_names]
-
-        if len(active_tools) < len(request.tools):
-            logger.debug(
-                f"Filtered {len(request.tools) - len(active_tools)} deferred tool schema(s) from model binding")
-
-        return request.override(tools=active_tools)
+        hide = self._hidden(request.state)
+        if not hide:
+            return request
+        active = [t for t in request.tools if getattr(t, "name", None) not in hide]
+        if len(active) < len(request.tools):
+            logger.debug("Filtered %d deferred tool schema(s) from model binding", len(request.tools) - len(active))
+        return request.override(tools=active)
 
     def _blocked_tool_message(self, request: ToolCallRequest) -> ToolMessage | None:
-        from deerflow.tools.builtins.tool_search import get_deferred_registry
-
-        registry = get_deferred_registry()
-        if not registry:
+        if not self._deferred:
             return None
-
-        tool_name = str(request.tool_call.get("name") or "")
-        if not tool_name:
+        name = str(request.tool_call.get("name") or "")
+        if not name or name not in self._hidden(request.state):
             return None
-
-        if not registry.contains(tool_name):
-            return None
-
-        tool_call_id = str(request.tool_call.get("id")
-                           or "missing_tool_call_id")
+        tool_call_id = str(request.tool_call.get("id") or "missing_tool_call_id")
         return ToolMessage(
-            content=(
-                f"Error: Tool '{tool_name}' is deferred and has not been promoted yet. Call tool_search first to expose and promote this tool's schema, then retry."),
+            content=(f"Error: Tool '{name}' is deferred and has not been promoted yet. Call tool_search first to expose and promote this tool's schema, then retry."),
             tool_call_id=tool_call_id,
-            name=tool_name,
+            name=name,
             status="error",
         )
 

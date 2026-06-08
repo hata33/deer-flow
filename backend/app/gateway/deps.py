@@ -1,40 +1,23 @@
-"""FastAPI 依赖注入中心 — app.state 单例获取器与运行时初始化。
+"""Centralized accessors for singleton objects stored on ``app.state``.
 
-本模块是 Gateway 的依赖注入枢纽，负责两个核心职责：
+**Getters** (used by routers): raise 503 when a required dependency is
+missing, except ``get_store`` which returns ``None``.
 
-  1. **运行时初始化**（langgraph_runtime）：
-     通过 AsyncExitStack 管理 LangGraph 运行时的所有单例生命周期，
-     包括 StreamBridge、Checkpointer、Store、RunManager 等。
-     在 app.py 的 lifespan 中通过 ``async with langgraph_runtime(app): yield`` 调用。
+``AppConfig`` is intentionally *not* cached on ``app.state``. Routers and the
+run path resolve it through :func:`deerflow.config.app_config.get_app_config`,
+which performs mtime-based hot reload, so edits to ``config.yaml`` take
+effect on the next request without a process restart. The engines created in
+:func:`langgraph_runtime` (stream bridge, persistence, checkpointer, store,
+run-event store) accept a ``startup_config`` snapshot — they are
+restart-required by design and stay bound to that snapshot to keep the live
+process consistent with itself.
 
-  2. **请求级依赖获取器**（get_*）：
-     从 app.state 读取运行时单例供路由使用。缺失时返回 503 Service Unavailable，
-     唯一例外是 get_store（返回 None）。
-
-核心设计：
-  - 使用 _require() 工厂函数批量创建类型安全的依赖获取器
-  - 认证相关单例（LocalAuthProvider、SQLiteUserRepository）通过模块级
-    缓存实现延迟初始化，避免循环导入
-  - RunContext 的构建聚合了多个基础设施依赖
-  - 用户身份解析从 Cookie → JWT → DB 查询 → Token 版本校验完整链路
-
-依赖获取器一览：
-  - get_stream_bridge     — SSE 事件桥接器
-  - get_run_manager       — 运行管理器
-  - get_checkpointer      — LangGraph 检查点存储
-  - get_run_event_store   — 运行事件存储
-  - get_feedback_repo     — 反馈仓库
-  - get_run_store         — 运行记录仓库
-  - get_store             — LangGraph Store（可能为 None）
-  - get_thread_store      — 线程元数据存储
-  - get_config            — 应用配置
-  - get_run_context       — 完整运行上下文
-  - get_local_provider    — 本地认证提供者
-  - get_current_user_from_request — 从请求中获取当前认证用户
+Initialization is handled directly in ``app.py`` via :class:`AsyncExitStack`.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, TypeVar, cast
@@ -42,55 +25,97 @@ from typing import TYPE_CHECKING, TypeVar, cast
 from fastapi import FastAPI, HTTPException, Request
 from langgraph.types import Checkpointer
 
-from deerflow.config.app_config import AppConfig
+from deerflow.config.app_config import AppConfig, get_app_config
 from deerflow.persistence.feedback import FeedbackRepository
 from deerflow.runtime import RunContext, RunManager, StreamBridge
 from deerflow.runtime.events.store.base import RunEventStore
 from deerflow.runtime.runs.store.base import RunStore
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from app.gateway.auth.local_provider import LocalAuthProvider
     from app.gateway.auth.repositories.sqlite import SQLiteUserRepository
     from deerflow.persistence.thread_meta.base import ThreadMetaStore
+    from deerflow.runtime import RunRecord
 
 
 T = TypeVar("T")
 
 
-def get_config(request: Request) -> AppConfig:
-    """返回存储在 app.state 上的应用级 AppConfig。
+async def _mark_latest_recovered_threads_error(
+    run_manager: RunManager,
+    thread_store: ThreadMetaStore,
+    recovered_runs: list[RunRecord],
+) -> None:
+    """Mark thread status as error only when its newest run was recovered."""
+    recovered_by_thread: dict[str, set[str]] = {}
+    for record in recovered_runs:
+        recovered_by_thread.setdefault(record.thread_id, set()).add(record.run_id)
 
-    Args:
-        request: FastAPI 请求对象。
+    for thread_id, recovered_run_ids in recovered_by_thread.items():
+        try:
+            latest_runs = await run_manager.list_by_thread(thread_id, user_id=None, limit=1)
+        except Exception:
+            logger.warning("Failed to find latest run for thread %s during run reconciliation", thread_id, exc_info=True)
+            continue
+        if not latest_runs or latest_runs[0].run_id not in recovered_run_ids:
+            continue
+        try:
+            await thread_store.update_status(thread_id, "error", user_id=None)
+        except Exception:
+            logger.warning("Failed to mark thread %s as error during run reconciliation", thread_id, exc_info=True)
 
-    Returns:
-        AppConfig 实例。
 
-    Raises:
-        HTTPException 503: 配置不可用。
+def get_config() -> AppConfig:
+    """Return the freshest ``AppConfig`` for the current request.
+
+    Routes through :func:`deerflow.config.app_config.get_app_config`, which
+    honours runtime ``ContextVar`` overrides and reloads ``config.yaml`` from
+    disk when its mtime changes. ``AppConfig`` is not cached on ``app.state``
+    at all — the only startup-time snapshot lives as a local
+    ``startup_config`` variable inside ``lifespan()`` and is passed
+    explicitly into :func:`langgraph_runtime` for the engines that are
+    restart-required by design. Routing every request through
+    :func:`get_app_config` closes the bytedance/deer-flow issue #3107 BUG-001
+    split-brain where the worker / lead-agent thread saw a stale startup
+    snapshot.
+
+    Any failure to materialise the config (missing file, permission denied,
+    YAML parse error, validation error) is reported as 503 — semantically
+    "the gateway cannot serve requests without a usable configuration" — and
+    logged with the original exception so operators have something to debug.
     """
-    config = getattr(request.app.state, "config", None)
-    if config is None:
-        raise HTTPException(status_code=503, detail="Configuration not available")
-    return config
+    try:
+        return get_app_config()
+    except Exception as exc:  # noqa: BLE001 - request boundary: log and degrade gracefully
+        logger.exception("Failed to load AppConfig at request time")
+        raise HTTPException(status_code=503, detail="Configuration not available") from exc
 
 
 @asynccontextmanager
-async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
-    """引导和清理所有 LangGraph 运行时单例。
+async def langgraph_runtime(app: FastAPI, startup_config: AppConfig) -> AsyncGenerator[None, None]:
+    """Bootstrap and tear down all LangGraph runtime singletons.
 
-    在 AsyncExitStack 中依次初始化以下组件：
-      1. StreamBridge（SSE 事件桥接）
-      2. 持久化引擎（PostgreSQL/SQLite 连接池）
-      3. Checkpointer（LangGraph 检查点存储）
-      4. Store（LangGraph 键值存储）
-      5. 仓库实例（RunRepository、FeedbackRepository、ThreadStore）
-      6. RunEventStore（运行事件存储）
-      7. RunManager（运行生命周期管理）
+    ``startup_config`` is the ``AppConfig`` snapshot taken once during
+    ``lifespan()`` for one-shot infrastructure bootstrap. The engines and
+    stores constructed here (stream bridge, persistence engine, checkpointer,
+    store, run-event store) are restart-required by design — they hold live
+    connections, file handles, or singleton providers — so they bind to this
+    snapshot and survive across `config.yaml` edits. Request-time consumers
+    must still go through :func:`get_config` for any field that should be
+    hot-reloadable. See ``backend/CLAUDE.md`` "Config Hot-Reload Boundary".
 
-    用法（在 app.py 中）::
+    The matching ``run_events_config`` is frozen onto ``app.state`` so
+    :func:`get_run_context` pairs a freshly-loaded ``AppConfig`` with the
+    *startup-time* run-events configuration the underlying ``event_store``
+    was built from — otherwise the runtime could end up combining a live
+    new ``run_events_config`` with an event store still bound to the
+    previous backend.
 
-        async with langgraph_runtime(app):
+    Usage in ``app.py``::
+
+        async with langgraph_runtime(app, startup_config):
             yield
     """
     from deerflow.persistence.engine import close_engine, get_session_factory, init_engine_from_config
@@ -99,19 +124,18 @@ async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
     from deerflow.runtime.events.store import make_run_event_store
 
     async with AsyncExitStack() as stack:
-        config = getattr(app.state, "config", None)
-        if config is None:
-            raise RuntimeError("langgraph_runtime() requires app.state.config to be initialized")
+        config = startup_config
 
         app.state.stream_bridge = await stack.enter_async_context(make_stream_bridge(config))
 
-        # 在 Checkpointer 之前初始化持久化引擎，确保自动建库逻辑先执行（PostgreSQL 后端）
+        # Initialize persistence engine BEFORE checkpointer so that
+        # auto-create-database logic runs first (postgres backend).
         await init_engine_from_config(config.database)
 
         app.state.checkpointer = await stack.enter_async_context(make_checkpointer(config))
         app.state.store = await stack.enter_async_context(make_store(config))
 
-        # 初始化仓库 — 所有仓库共享同一个 session_factory
+        # Initialize repositories — one get_session_factory() call for all.
         sf = get_session_factory()
         if sf is not None:
             from deerflow.persistence.feedback import FeedbackRepository
@@ -120,7 +144,6 @@ async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
             app.state.run_store = RunRepository(sf)
             app.state.feedback_repo = FeedbackRepository(sf)
         else:
-            # 无持久化引擎时使用内存实现
             from deerflow.runtime.runs.store.memory import MemoryRunStore
 
             app.state.run_store = MemoryRunStore()
@@ -130,12 +153,26 @@ async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
 
         app.state.thread_store = make_thread_store(sf, app.state.store)
 
-        # 运行事件存储（有独立的工厂方法，根据配置选择后端）
+        # Run event store. The store and the matching ``run_events_config`` are
+        # both frozen at startup so ``get_run_context`` does not combine a
+        # freshly-reloaded ``AppConfig.run_events`` with a store still bound to
+        # the previous backend.
         run_events_config = getattr(config, "run_events", None)
+        app.state.run_events_config = run_events_config
         app.state.run_event_store = make_run_event_store(run_events_config)
 
-        # RunManager 持有 RunStore 以支持持久化
+        # RunManager with store backing for persistence
         app.state.run_manager = RunManager(store=app.state.run_store)
+        if getattr(config.database, "backend", None) == "sqlite":
+            from deerflow.utils.time import now_iso
+
+            # Startup-only recovery: clean shutdowns return no active rows and
+            # the thread-status update below becomes a no-op.
+            recovered_runs = await app.state.run_manager.reconcile_orphaned_inflight_runs(
+                error="Gateway restarted before this run reached a durable final state.",
+                before=now_iso(),
+            )
+            await _mark_latest_recovered_threads_error(app.state.run_manager, app.state.thread_store, recovered_runs)
 
         try:
             yield
@@ -144,22 +181,12 @@ async def langgraph_runtime(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 # ---------------------------------------------------------------------------
-# 获取器 — 路由模块按请求调用
+# Getters – called by routers per-request
 # ---------------------------------------------------------------------------
 
 
 def _require(attr: str, label: str) -> Callable[[Request], T]:
-    """创建 FastAPI 依赖函数：返回 app.state.<attr> 或抛出 503。
-
-    工厂函数，为每个运行时单例生成类型安全的依赖获取器。
-
-    Args:
-        attr: app.state 上的属性名。
-        label: 503 错误消息中的可读名称。
-
-    Returns:
-        FastAPI 依赖函数。
-    """
+    """Create a FastAPI dependency that returns ``app.state.<attr>`` or 503."""
 
     def dep(request: Request) -> T:
         val = getattr(request.app.state, attr, None)
@@ -171,7 +198,6 @@ def _require(attr: str, label: str) -> Callable[[Request], T]:
     return dep
 
 
-# 批量创建运行时单例的依赖获取器
 get_stream_bridge: Callable[[Request], StreamBridge] = _require("stream_bridge", "Stream bridge")
 get_run_manager: Callable[[Request], RunManager] = _require("run_manager", "Run manager")
 get_checkpointer: Callable[[Request], Checkpointer] = _require("checkpointer", "Checkpointer")
@@ -181,31 +207,12 @@ get_run_store: Callable[[Request], RunStore] = _require("run_store", "Run store"
 
 
 def get_store(request: Request):
-    """返回全局 Store（可能为 None，如果未配置）。
-
-    与其他获取器不同，Store 是可选组件。
-
-    Args:
-        request: FastAPI 请求对象。
-
-    Returns:
-        LangGraph Store 实例或 None。
-    """
+    """Return the global store (may be ``None`` if not configured)."""
     return getattr(request.app.state, "store", None)
 
 
 def get_thread_store(request: Request) -> ThreadMetaStore:
-    """返回线程元数据存储（SQL 或内存后端）。
-
-    Args:
-        request: FastAPI 请求对象。
-
-    Returns:
-        ThreadMetaStore 实例。
-
-    Raises:
-        HTTPException 503: 线程元数据存储不可用。
-    """
+    """Return the thread metadata store (SQL or memory-backed)."""
     val = getattr(request.app.state, "thread_store", None)
     if val is None:
         raise HTTPException(status_code=503, detail="Thread metadata store not available")
@@ -213,47 +220,39 @@ def get_thread_store(request: Request) -> ThreadMetaStore:
 
 
 def get_run_context(request: Request) -> RunContext:
-    """从 app.state 单例构建 RunContext。
+    """Build a :class:`RunContext` from ``app.state`` singletons.
 
-    返回包含基础设施依赖的*基础*上下文。
-
-    Args:
-        request: FastAPI 请求对象。
-
-    Returns:
-        聚合了 Checkpointer、Store、EventStore 等依赖的 RunContext。
+    Returns a *base* context with infrastructure dependencies. The
+    ``app_config`` field is resolved live so per-run fields (e.g.
+    ``models[*].max_tokens``) follow ``config.yaml`` edits; the
+    ``event_store`` / ``run_events_config`` pair stays frozen to the snapshot
+    captured in :func:`langgraph_runtime` so callers never see a store bound
+    to one backend paired with a config pointing at another.
     """
-    config = get_config(request)
     return RunContext(
         checkpointer=get_checkpointer(request),
         store=get_store(request),
         event_store=get_run_event_store(request),
-        run_events_config=getattr(config, "run_events", None),
+        run_events_config=getattr(request.app.state, "run_events_config", None),
         thread_store=get_thread_store(request),
-        app_config=config,
+        app_config=get_config(),
     )
 
 
 # ---------------------------------------------------------------------------
-# 认证辅助函数（供 authz.py 和 auth 中间件使用）
+# Auth helpers (used by authz.py and auth middleware)
 # ---------------------------------------------------------------------------
 
-# 模块级缓存的单例实例，避免每个请求重复创建
+# Cached singletons to avoid repeated instantiation per request
 _cached_local_provider: LocalAuthProvider | None = None
 _cached_repo: SQLiteUserRepository | None = None
 
 
 def get_local_provider() -> LocalAuthProvider:
-    """获取或创建缓存的 LocalAuthProvider 单例。
+    """Get or create the cached LocalAuthProvider singleton.
 
-    必须在 init_engine_from_config() 之后调用 — 构建用户仓库
-    需要共享的 session_factory。
-
-    Returns:
-        LocalAuthProvider 实例。
-
-    Raises:
-        RuntimeError: 持久化引擎未初始化时调用。
+    Must be called after ``init_engine_from_config()`` — the shared
+    session factory is required to construct the user repository.
     """
     global _cached_local_provider, _cached_repo
     if _cached_repo is None:
@@ -272,18 +271,9 @@ def get_local_provider() -> LocalAuthProvider:
 
 
 async def get_current_user_from_request(request: Request):
-    """从请求 Cookie 中获取当前认证用户。
+    """Get the current authenticated user from the request cookie.
 
-    完整的认证链路：Cookie → JWT 解码 → DB 用户查询 → Token 版本校验。
-
-    Args:
-        request: FastAPI 请求对象。
-
-    Returns:
-        认证通过的 User 对象。
-
-    Raises:
-        HTTPException 401: 未认证、Token 无效、用户不存在或 Token 已过期。
+    Raises HTTPException 401 if not authenticated.
     """
     from app.gateway.auth import decode_token
     from app.gateway.auth.errors import AuthErrorCode, AuthErrorResponse, TokenError, token_error_to_code
@@ -310,7 +300,7 @@ async def get_current_user_from_request(request: Request):
             detail=AuthErrorResponse(code=AuthErrorCode.USER_NOT_FOUND, message="User not found").model_dump(),
         )
 
-    # Token 版本不匹配 → 密码已修改，旧 Token 失效
+    # Token version mismatch → password was changed, token is stale
     if user.token_version != payload.ver:
         raise HTTPException(
             status_code=401,
@@ -321,15 +311,9 @@ async def get_current_user_from_request(request: Request):
 
 
 async def get_optional_user_from_request(request: Request):
-    """从请求中获取可选的认证用户。
+    """Get optional authenticated user from request.
 
-    与 get_current_user_from_request 不同，未认证时返回 None 而非抛出异常。
-
-    Args:
-        request: FastAPI 请求对象。
-
-    Returns:
-        User 对象，或 None（未认证）。
+    Returns None if not authenticated.
     """
     try:
         return await get_current_user_from_request(request)
@@ -338,17 +322,11 @@ async def get_optional_user_from_request(request: Request):
 
 
 async def get_current_user(request: Request) -> str | None:
-    """从请求 Cookie 中提取 user_id，未认证时返回 None。
+    """Extract user_id from request cookie, or None if not authenticated.
 
-    轻量级适配器，仅返回字符串 ID，适用于只需要身份标识的调用者
-    （如 feedback.py）。需要完整用户对象的调用者应使用
-    get_current_user_from_request 或 get_optional_user_from_request。
-
-    Args:
-        request: FastAPI 请求对象。
-
-    Returns:
-        用户 ID 字符串，或 None（未认证）。
+    Thin adapter that returns the string id for callers that only need
+    identification (e.g., ``feedback.py``). Full-user callers should use
+    ``get_current_user_from_request`` or ``get_optional_user_from_request``.
     """
     user = await get_optional_user_from_request(request)
     return str(user.id) if user else None
