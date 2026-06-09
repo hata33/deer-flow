@@ -1,0 +1,1673 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeerFlow Backend Architecture</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        mono: ['JetBrains Mono', 'monospace'],
+        display: ['Space Grotesk', 'sans-serif'],
+      },
+      colors: {
+        midnight: '#0a0e1a',
+        deep: '#0f1424',
+        slate: '#161d35',
+        steel: '#1e2748',
+        accent: '#00e5a0',
+        'accent-dim': '#00b37d',
+        ember: '#ff6b3d',
+        'ember-dim': '#cc5530',
+        frost: '#a8c0ff',
+        mist: '#c4d4f7',
+        glow: '#00e5a033',
+      }
+    }
+  }
+}
+</script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { background: #0a0e1a; color: #c4d4f7; font-family: 'Space Grotesk', sans-serif; overflow-x: hidden; }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #0f1424; }
+  ::-webkit-scrollbar-thumb { background: #1e2748; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #00e5a0; }
+
+  /* Animated grid background */
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Glow effects */
+  .glow-border { border: 1px solid rgba(0,229,160,0.15); box-shadow: 0 0 20px rgba(0,229,160,0.05), inset 0 0 20px rgba(0,229,160,0.02); }
+  .glow-text { text-shadow: 0 0 20px rgba(0,229,160,0.4); }
+
+  /* Mermaid overrides */
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  /* Animated gradient line */
+  .gradient-line {
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #00e5a0, #a8c0ff, #ff6b3d, transparent);
+    background-size: 200% 100%;
+    animation: gradient-flow 4s linear infinite;
+  }
+  @keyframes gradient-flow { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* Pulse animation */
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 5px rgba(0,229,160,0.2); }
+    50% { box-shadow: 0 0 20px rgba(0,229,160,0.4); }
+  }
+
+  /* Float animation */
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+  }
+
+  /* Fade-in */
+  .fade-in { opacity: 0; transform: translateY(30px); transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+  .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+  /* Tree node styles */
+  .tree-node { cursor: pointer; transition: all 0.2s; }
+  .tree-node:hover { fill: #00e5a0; }
+  .tree-link { fill: none; stroke: #1e2748; stroke-width: 1.5px; transition: stroke 0.2s; }
+  .tree-link:hover { stroke: #00e5a0; }
+
+  /* Tab styles */
+  .tab-btn { transition: all 0.3s; position: relative; }
+  .tab-btn.active::after {
+    content: ''; position: absolute; bottom: -2px; left: 0; right: 0; height: 2px;
+    background: #00e5a0; border-radius: 1px;
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Mermaid zoom wrapper */
+  .mermaid-zoom-wrap {
+    overflow: hidden; position: relative; cursor: grab; width: 100%;
+  }
+  .mermaid-zoom-wrap:active { cursor: grabbing; }
+  .mermaid-zoom-wrap svg { min-width: 600px; }
+
+  /* Tooltip */
+  .tooltip {
+    position: absolute; background: #161d35; border: 1px solid #1e2748; border-radius: 8px;
+    padding: 12px 16px; font-size: 13px; pointer-events: none; z-index: 100;
+    max-width: 350px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.2s;
+  }
+  .tooltip.show { opacity: 1; }
+
+  /* Nav */
+  .nav-link { position: relative; transition: color 0.3s; }
+  .nav-link::after {
+    content: ''; position: absolute; bottom: -4px; left: 0; width: 0; height: 2px;
+    background: #00e5a0; transition: width 0.3s;
+  }
+  .nav-link:hover::after { width: 100%; }
+
+  /* D3 chart */
+  .d3-container svg text { font-family: 'JetBrains Mono', monospace; fill: #a8c0ff; }
+  .d3-container svg .node-rect { rx: 6; ry: 6; transition: all 0.3s; }
+  .d3-container svg .node-rect:hover { filter: brightness(1.3); }
+
+  /* Card hover */
+  .arch-card { transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+  .arch-card:hover { transform: translateY(-4px); border-color: rgba(0,229,160,0.3); box-shadow: 0 12px 40px rgba(0,229,160,0.08); }
+
+  /* File tag */
+  .file-tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+    font-family: 'JetBrains Mono', monospace; margin: 2px; transition: all 0.2s;
+  }
+  .file-tag:hover { transform: scale(1.05); }
+
+  /* Section counter */
+  .section-num {
+    font-family: 'JetBrains Mono', monospace; font-size: 80px; font-weight: 700;
+    color: rgba(0,229,160,0.06); position: absolute; top: -20px; left: -10px; line-height: 1;
+    user-select: none;
+  }
+
+  /* Particle canvas */
+  #particles { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+</style>
+</head>
+<body class="grid-bg">
+
+<canvas id="particles"></canvas>
+
+<!-- Navigation -->
+<nav class="fixed top-0 w-full z-50 backdrop-blur-xl bg-midnight/80 border-b border-steel/50">
+  <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-frost flex items-center justify-center">
+        <span class="text-midnight font-bold text-sm font-mono">DF</span>
+      </div>
+      <span class="font-display font-semibold text-mist text-lg">DeerFlow Architecture</span>
+      <span class="file-tag bg-accent/10 text-accent border border-accent/20 ml-2">v2.0</span>
+    </div>
+    <div class="hidden md:flex items-center gap-8 text-sm text-frost/70">
+      <a href="#overview" class="nav-link hover:text-accent">Overview</a>
+      <a href="#gateway" class="nav-link hover:text-accent">Gateway</a>
+      <a href="#harness" class="nav-link hover:text-accent">Harness</a>
+      <a href="#integration" class="nav-link hover:text-accent">Integration</a>
+      <a href="#interactive" class="nav-link hover:text-accent">Explorer</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero Section -->
+<header id="overview" class="relative min-h-screen flex items-center justify-center pt-16">
+  <div class="absolute inset-0 overflow-hidden">
+    <div class="absolute top-1/4 left-1/4 w-96 h-96 bg-accent/5 rounded-full blur-3xl"></div>
+    <div class="absolute bottom-1/4 right-1/4 w-96 h-96 bg-frost/5 rounded-full blur-3xl"></div>
+  </div>
+  <div class="relative z-10 max-w-5xl mx-auto px-6 text-center">
+    <div class="inline-block mb-6">
+      <span class="file-tag bg-accent/10 text-accent border border-accent/20 text-xs">BACKEND ARCHITECTURE DEEP DIVE</span>
+    </div>
+    <h1 class="font-display text-6xl md:text-8xl font-bold text-white mb-6 tracking-tight">
+      Deer<span class="text-accent">Flow</span>
+    </h1>
+    <p class="text-xl md:text-2xl text-frost/60 max-w-2xl mx-auto mb-4 font-light">
+      AI Agent Orchestration Framework
+    </p>
+    <p class="text-base text-frost/40 max-w-3xl mx-auto mb-12 font-light leading-relaxed">
+      基于 LangGraph 的多层架构：Gateway 提供 HTTP API 层，Harness 提供 Agent 运行时核心。<br>
+      两层通过依赖注入解耦，支持水平扩展和多种部署模式。
+    </p>
+    <div class="flex justify-center gap-6 mb-16">
+      <div class="glow-border rounded-xl px-6 py-4 bg-deep/60 backdrop-blur text-center">
+        <div class="text-3xl font-bold text-accent font-mono">16</div>
+        <div class="text-xs text-frost/50 mt-1">API Routers</div>
+      </div>
+      <div class="glow-border rounded-xl px-6 py-4 bg-deep/60 backdrop-blur text-center">
+        <div class="text-3xl font-bold text-ember font-mono">18</div>
+        <div class="text-xs text-frost/50 mt-1">Middlewares</div>
+      </div>
+      <div class="glow-border rounded-xl px-6 py-4 bg-deep/60 backdrop-blur text-center">
+        <div class="text-3xl font-bold text-frost font-mono">4</div>
+        <div class="text-xs text-frost/50 mt-1">Memory Layers</div>
+      </div>
+      <div class="glow-border rounded-xl px-6 py-4 bg-deep/60 backdrop-blur text-center">
+        <div class="text-3xl font-bold text-mist font-mono">3</div>
+        <div class="text-xs text-frost/50 mt-1">Sandbox Types</div>
+      </div>
+    </div>
+    <!-- Top-level architecture diagram -->
+    <div class="glow-border rounded-2xl p-8 bg-deep/40 backdrop-blur max-w-4xl mx-auto">
+      <div class="mermaid">
+flowchart TB
+    Client(["🌐 Client / IDE / CLI"])
+
+    subgraph GW["<b>Gateway Layer</b>  app/gateway"]
+      direction TB
+      MW["Middleware Stack<br/>CORS → Auth → CSRF"]
+      RTR["FastAPI Routers<br/>threads · runs · agents · skills · ..."]
+      SVC["Service Layer<br/>run lifecycle · SSE formatting"]
+      AUTH["Auth System<br/>JWT · Providers · Repositories"]
+    end
+
+    subgraph HN["<b>Harness Layer</b>  packages/harness/deerflow"]
+      direction TB
+      AGT["Agent Factory<br/>lead_agent · factory · features"]
+      MDW["Middleware Chain<br/>18 ordered middlewares"]
+      TOOL["Tool Assembly<br/>Config → MCP → Built-in → Subagent"]
+      MEM["Memory System<br/>4-layer · per-user isolation"]
+      SBOX["Sandbox<br/>Local · Docker · AIO"]
+    end
+
+    Client -->|"HTTP / SSE"| MW
+    MW --> RTR
+    RTR --> SVC
+    SVC -->|"dependency injection"| AGT
+    AUTH -.-> MW
+    AGT --> MDW
+    MDW --> TOOL
+    MDW --> MEM
+    TOOL --> SBOX
+
+    style GW fill:#0f1424,stroke:#00e5a0,stroke-width:2px,color:#c4d4f7
+    style HN fill:#0f1424,stroke:#ff6b3d,stroke-width:2px,color:#c4d4f7
+    style Client fill:#161d35,stroke:#a8c0ff,stroke-width:1px,color:#c4d4f7
+    style MW fill:#1e2748,stroke:#00e5a0,stroke-width:1px,color:#c4d4f7
+    style RTR fill:#1e2748,stroke:#00e5a0,stroke-width:1px,color:#c4d4f7
+    style SVC fill:#1e2748,stroke:#00e5a0,stroke-width:1px,color:#c4d4f7
+    style AUTH fill:#1e2748,stroke:#00e5a0,stroke-width:1px,color:#c4d4f7
+    style AGT fill:#1e2748,stroke:#ff6b3d,stroke-width:1px,color:#c4d4f7
+    style MDW fill:#1e2748,stroke:#ff6b3d,stroke-width:1px,color:#c4d4f7
+    style TOOL fill:#1e2748,stroke:#ff6b3d,stroke-width:1px,color:#c4d4f7
+    style MEM fill:#1e2748,stroke:#ff6b3d,stroke-width:1px,color:#c4d4f7
+    style SBOX fill:#1e2748,stroke:#ff6b3d,stroke-width:1px,color:#c4d4f7
+      </div>
+    </div>
+    <div class="mt-8 animate-bounce">
+      <a href="#gateway" class="text-frost/30 hover:text-accent transition-colors">
+        <svg class="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="gradient-line max-w-5xl mx-auto"></div>
+
+<!-- Gateway Section -->
+<section id="gateway" class="relative max-w-7xl mx-auto px-6 py-24">
+  <span class="section-num">01</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-accent/10 text-accent border border-accent/20">LAYER 01</span>
+    </div>
+    <h2 class="font-display text-4xl md:text-5xl font-bold text-white mb-3">Gateway</h2>
+    <p class="text-frost/50 text-lg mb-12 max-w-2xl">HTTP API 入口层 — FastAPI 应用工厂，负责认证、路由、流式响应和文件管理</p>
+
+    <!-- Architecture cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-16">
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur">
+        <div class="text-accent text-2xl mb-3">🔒</div>
+        <h3 class="text-white font-semibold mb-2">Auth System</h3>
+        <p class="text-frost/50 text-sm leading-relaxed">JWT + Provider + Repository 三层认证。支持本地邮箱密码登录，Token 版本轮换，CSRF 双重提交 Cookie。</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span class="file-tag bg-accent/10 text-accent/80">jwt.py</span>
+          <span class="file-tag bg-accent/10 text-accent/80">providers.py</span>
+          <span class="file-tag bg-accent/10 text-accent/80">repositories/</span>
+        </div>
+      </div>
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur">
+        <div class="text-accent text-2xl mb-3">🔀</div>
+        <h3 class="text-white font-semibold mb-2">Middleware Stack</h3>
+        <p class="text-frost/50 text-sm leading-relaxed">CORS → Auth Middleware → CSRF Middleware 三级管道。全局 JWT 校验，请求级用户上下文注入。</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span class="file-tag bg-accent/10 text-accent/80">auth_middleware.py</span>
+          <span class="file-tag bg-accent/10 text-accent/80">csrf_middleware.py</span>
+        </div>
+      </div>
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur">
+        <div class="text-accent text-2xl mb-3">🛤️</div>
+        <h3 class="text-white font-semibold mb-2">16 Routers</h3>
+        <p class="text-frost/50 text-sm leading-relaxed">完整的 RESTful API：threads、runs、agents、skills、memory、uploads、artifacts、channels 等。</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span class="file-tag bg-accent/10 text-accent/80">routers/</span>
+          <span class="file-tag bg-accent/10 text-accent/80">deps.py</span>
+        </div>
+      </div>
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur">
+        <div class="text-accent text-2xl mb-3">⚡</div>
+        <h3 class="text-white font-semibold mb-2">Run Services</h3>
+        <p class="text-frost/50 text-sm leading-relaxed">Run 生命周期管理、SSE 事件帧格式化、流式桥接。支持 streaming / blocking / wait 三种模式。</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span class="file-tag bg-accent/10 text-accent/80">services.py</span>
+          <span class="file-tag bg-accent/10 text-accent/80">pagination.py</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gateway Tabs -->
+    <div id="gw-tabs" class="tab-group glow-border rounded-2xl bg-deep/40 backdrop-blur overflow-hidden">
+      <div class="flex border-b border-steel/50 overflow-x-auto">
+        <button class="tab-btn active px-6 py-4 text-sm font-mono text-accent whitespace-nowrap" data-tab="gw-tree">Directory Tree</button>
+        <button class="tab-btn px-6 py-4 text-sm font-mono text-frost/50 whitespace-nowrap" data-tab="gw-sequence">Request Flow</button>
+        <button class="tab-btn px-6 py-4 text-sm font-mono text-frost/50 whitespace-nowrap" data-tab="gw-auth">Auth Sequence</button>
+        <button class="tab-btn px-6 py-4 text-sm font-mono text-frost/50 whitespace-nowrap" data-tab="gw-routers">Router Map</button>
+      </div>
+      <div id="gw-tree" class="tab-content active p-8">
+        <div class="mermaid">
+flowchart LR
+    subgraph GW["app/gateway"]
+      direction TB
+      APP["app.py<br/><i>FastAPI Factory</i>"]
+      CFG["config.py"]
+      MW["auth_middleware.py"]
+      CSRF["csrf_middleware.py"]
+      AUTHZ["authz.py"]
+      DEPS["deps.py"]
+      SVC["services.py"]
+      UTIL["utils.py"]
+      PAG["pagination.py"]
+      PATH["path_utils.py"]
+      INTAUTH["internal_auth.py"]
+      LGAUTH["langgraph_auth.py"]
+
+      subgraph AUTHSYS["auth/"]
+        AUTHCFG["config.py"]
+        JWT["jwt.py"]
+        PROV["providers.py"]
+        LOCAL["local_provider.py"]
+        MODELS["models.py"]
+        PWD["password.py"]
+        CRED["credential_file.py"]
+        ERR["errors.py"]
+        RESET["reset_admin.py"]
+        subgraph REPOS["repositories/"]
+          BASE["base.py"]
+          SQLITE["sqlite.py"]
+        end
+      end
+
+      subgraph ROUTERS["routers/"]
+        R_THREADS["threads.py"]
+        R_TRUNS["thread_runs.py"]
+        R_RUNS["runs.py"]
+        R_AGENTS["agents.py"]
+        R_MODELS["models.py"]
+        R_AUTH["auth.py"]
+        R_SKILLS["skills.py"]
+        R_MEMORY["memory.py"]
+        R_MCP["mcp.py"]
+        R_UPLOADS["uploads.py"]
+        R_ARTIFACTS["artifacts.py"]
+        R_SUGGEST["suggestions.py"]
+        R_FEEDBACK["feedback.py"]
+        R_CHANNELS["channels.py"]
+        R_ASSIST["assistants_compat.py"]
+      end
+    end
+
+    APP --> MW
+    APP --> CSRF
+    APP --> ROUTERS
+    MW --> AUTHZ
+    ROUTERS --> DEPS
+    ROUTERS --> SVC
+    SVC --> PATH
+    MW --> AUTHSYS
+
+    style GW fill:#0a0e1a,stroke:#00e5a0,stroke-width:2px,color:#c4d4f7
+    style AUTHSYS fill:#161d35,stroke:#00e5a080,stroke-width:1px,color:#c4d4f7
+    style REPOS fill:#1e2748,stroke:#00e5a040,stroke-width:1px,color:#c4d4f7
+    style ROUTERS fill:#161d35,stroke:#00e5a080,stroke-width:1px,color:#c4d4f7
+        </div>
+      </div>
+      <div id="gw-sequence" class="tab-content p-8">
+        <div class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant MW as Auth Middleware
+    participant CSRF as CSRF Middleware
+    participant RTR as Router
+    participant DEPS as deps.py
+    participant SVC as services.py
+    participant HN as Harness Runtime
+
+    C->>MW: HTTP Request + JWT Cookie
+    MW->>MW: Validate JWT token
+    MW->>MW: Inject user into request.state
+    MW->>CSRF: Authenticated request
+    CSRF->>CSRF: Verify Origin + Double Submit Cookie
+    CSRF->>RTR: Validated request
+    RTR->>DEPS: Get RunManager / StreamBridge
+    DEPS->>SVC: Inject singletons
+    SVC->>HN: create_run() / stream_run()
+    HN-->>SVC: SSE event stream
+    SVC-->>RTR: Formatted SSE frames
+    RTR-->>C: StreamingResponse (text/event-stream)
+        </div>
+      </div>
+      <div id="gw-auth" class="tab-content p-8">
+        <div class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant AUTH as routers/auth.py
+    participant PROV as LocalProvider
+    participant JWT as jwt.py
+    participant REPO as SQLiteRepository
+    participant MW as AuthMiddleware
+
+    rect rgb(30, 39, 72, 0.5)
+        Note over C,REPO: Login Flow
+        C->>AUTH: POST /auth/login {email, password}
+        AUTH->>PROV: authenticate(email, password)
+        PROV->>REPO: get_user_by_email()
+        REPO-->>PROV: User record
+        PROV->>PROV: verify_password() with version
+        PROV-->>AUTH: User verified
+        AUTH->>JWT: create_token(user_id, version)
+        JWT-->>AUTH: JWT token
+        AUTH-->>C: Set-Cookie: token=xxx
+    end
+
+    rect rgb(22, 29, 53, 0.5)
+        Note over C,MW: Subsequent Request
+        C->>MW: GET /threads (with cookie)
+        MW->>JWT: decode_token(cookie)
+        JWT-->>MW: {user_id, version}
+        MW->>REPO: verify token_version
+        REPO-->>MW: Version matches
+        MW->>MW: Set request.state.user
+    end
+        </div>
+      </div>
+      <div id="gw-routers" class="tab-content p-8">
+        <div class="mermaid">
+flowchart TB
+    subgraph ROUTERS["API Routers"]
+        direction TB
+        subgraph CORE["Core Run APIs"]
+            R1["<b>threads.py</b><br/>Thread CRUD lifecycle"]
+            R2["<b>thread_runs.py</b><br/>Thread-scoped runs + SSE"]
+            R3["<b>runs.py</b><br/>Stateless runs (auto-create thread)"]
+        end
+        subgraph MGMT["Management APIs"]
+            R4["<b>agents.py</b><br/>Agent lifecycle"]
+            R5["<b>skills.py</b><br/>Skill CRUD + install"]
+            R6["<b>models.py</b><br/>Model listing"]
+            R7["<b>mcp.py</b><br/>MCP server config"]
+            R8["<b>memory.py</b><br/>Memory access + reload"]
+        end
+        subgraph DATA["Data & Files"]
+            R9["<b>uploads.py</b><br/>Multi-format file upload"]
+            R10["<b>artifacts.py</b><br/>AI-generated file serving"]
+            R11["<b>feedback.py</b><br/>Feedback CRUD + stats"]
+        end
+        subgraph EXT["Extensions"]
+            R12["<b>channels.py</b><br/>Feishu/Slack/Telegram/DingTalk"]
+            R13["<b>suggestions.py</b><br/>Follow-up question generation"]
+            R14["<b>auth.py</b><br/>Login/Register/Logout"]
+            R15["<b>assistants_compat.py</b><br/>LangGraph Studio compat"]
+        end
+    end
+
+    style ROUTERS fill:#0a0e1a,stroke:#00e5a0,stroke-width:1px,color:#c4d4f7
+    style CORE fill:#161d35,stroke:#00e5a080,stroke-width:1px,color:#c4d4f7
+    style MGMT fill:#161d35,stroke:#00e5a080,stroke-width:1px,color:#c4d4f7
+    style DATA fill:#161d35,stroke:#00e5a080,stroke-width:1px,color:#c4d4f7
+    style EXT fill:#161d35,stroke:#00e5a080,stroke-width:1px,color:#c4d4f7
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="gradient-line max-w-5xl mx-auto"></div>
+
+<!-- Harness Section -->
+<section id="harness" class="relative max-w-7xl mx-auto px-6 py-24">
+  <span class="section-num">02</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-ember/10 text-ember border border-ember/20">LAYER 02</span>
+    </div>
+    <h2 class="font-display text-4xl md:text-5xl font-bold text-white mb-3">Harness</h2>
+    <p class="text-frost/50 text-lg mb-12 max-w-2xl">Agent 运行时核心 — LangGraph Agent 工厂、18 层中间件链、工具装配、沙箱执行、记忆系统</p>
+
+    <!-- Architecture cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-16">
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur" style="border-color: rgba(255,107,61,0.15);">
+        <div class="text-ember text-2xl mb-3">🤖</div>
+        <h3 class="text-white font-semibold mb-2">Agent Factory</h3>
+        <p class="text-frost/50 text-sm leading-relaxed">两层工厂模式：SDK 层 factory.py 纯参数驱动，应用层 lead_agent/agent.py 配置驱动。RuntimeFeatures 声明式特性开关。</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span class="file-tag bg-ember/10 text-ember/80">factory.py</span>
+          <span class="file-tag bg-ember/10 text-ember/80">lead_agent/</span>
+          <span class="file-tag bg-ember/10 text-ember/80">features.py</span>
+        </div>
+      </div>
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur" style="border-color: rgba(255,107,61,0.15);">
+        <div class="text-ember text-2xl mb-3">🔗</div>
+        <h3 class="text-white font-semibold mb-2">Middleware Chain</h3>
+        <p class="text-frost/50 text-sm leading-relaxed">18 个有序中间件：从 ThreadData 初始化到 LoopDetection 检测，覆盖安全、性能、审计、上下文管理的全链路。</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span class="file-tag bg-ember/10 text-ember/80">middlewares/</span>
+          <span class="file-tag bg-ember/10 text-ember/80">18 components</span>
+        </div>
+      </div>
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur" style="border-color: rgba(255,107,61,0.15);">
+        <div class="text-ember text-2xl mb-3">🧰</div>
+        <h3 class="text-white font-semibold mb-2">Tool Assembly</h3>
+        <p class="text-frost/50 text-sm leading-relaxed">四源工具装配管道：Config 定义 → MCP 扩展 → 内置工具 → 子代理。支持 Skill 管理工具的延迟加载。</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span class="file-tag bg-ember/10 text-ember/80">tools/tools.py</span>
+          <span class="file-tag bg-ember/10 text-ember/80">skills/</span>
+        </div>
+      </div>
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur" style="border-color: rgba(255,107,61,0.15);">
+        <div class="text-ember text-2xl mb-3">🧠</div>
+        <h3 class="text-white font-semibold mb-2">Memory System</h3>
+        <p class="text-frost/50 text-sm leading-relaxed">四层架构：Prompt 注入格式化 → JSON 文件存储 → LLM 智能提取 → 防抖更新队列。支持 per-user 隔离。</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span class="file-tag bg-ember/10 text-ember/80">memory/</span>
+          <span class="file-tag bg-ember/10 text-ember/80">4 layers</span>
+        </div>
+      </div>
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur" style="border-color: rgba(255,107,61,0.15);">
+        <div class="text-ember text-2xl mb-3">📦</div>
+        <h3 class="text-white font-semibold mb-2">Sandbox</h3>
+        <p class="text-frost/50 text-sm leading-relaxed">抽象沙箱接口，三种实现：Local（路径映射）、Docker（容器隔离）、AIO。支持 PathMapping 双向转换、只读挂载、输出脱敏。</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span class="file-tag bg-ember/10 text-ember/80">sandbox/</span>
+          <span class="file-tag bg-ember/10 text-ember/80">local/</span>
+        </div>
+      </div>
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur" style="border-color: rgba(255,107,61,0.15);">
+        <div class="text-ember text-2xl mb-3">⚙️</div>
+        <h3 class="text-white font-semibold mb-2">Runtime</h3>
+        <p class="text-frost/50 text-sm leading-relaxed">LangGraph 兼容运行时：RunManager 管理执行、Checkpointer 持久化状态、StreamBridge 流式通信、Store 抽象存储。</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span class="file-tag bg-ember/10 text-ember/80">runtime/</span>
+          <span class="file-tag bg-ember/10 text-ember/80">runs/manager.py</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Harness Tabs -->
+    <div id="hn-tabs" class="tab-group glow-border rounded-2xl bg-deep/40 backdrop-blur overflow-hidden" style="border-color: rgba(255,107,61,0.15);">
+      <div class="flex border-b border-steel/50 overflow-x-auto">
+        <button class="tab-btn active px-6 py-4 text-sm font-mono text-ember whitespace-nowrap" data-tab="hn-tree">Module Tree</button>
+        <button class="tab-btn px-6 py-4 text-sm font-mono text-frost/50 whitespace-nowrap" data-tab="hn-middleware">Middleware Chain</button>
+        <button class="tab-btn px-6 py-4 text-sm font-mono text-frost/50 whitespace-nowrap" data-tab="hn-flow">Agent Execution Flow</button>
+        <button class="tab-btn px-6 py-4 text-sm font-mono text-frost/50 whitespace-nowrap" data-tab="hn-memory">Memory Architecture</button>
+      </div>
+      <div id="hn-tree" class="tab-content active p-8">
+        <div class="mermaid">
+flowchart LR
+    subgraph HN["packages/harness/deerflow"]
+      direction TB
+      INIT["__init__.py"]
+
+      subgraph AGENTS["agents/"]
+        FACTORY["factory.py<br/><i>SDK-level factory</i>"]
+        FEATURES["features.py<br/><i>RuntimeFeatures</i>"]
+        THREAD_ST["thread_state.py<br/><i>ThreadState schema</i>"]
+        subgraph LEAD["lead_agent/"]
+          AGENT["agent.py<br/><i>App-level factory</i>"]
+          PROMPT["prompt.py<br/><i>System prompts</i>"]
+        end
+        subgraph MDWS["middlewares/"]
+          M1["ThreadData"]
+          M2["Uploads"]
+          M3["Sandbox"]
+          M4["Guardrail"]
+          M5["Summarization"]
+          M6["Memory"]
+          M7["Title"]
+          M8["LoopDetection"]
+          M9["... +10 more"]
+        end
+        subgraph MEM_MOD["memory/"]
+          MEM_STORE["storage.py"]
+          MEM_UPD["updater.py"]
+          MEM_Q["queue.py"]
+        end
+      end
+
+      subgraph TOOLSYS["tools/"]
+        TOOLS["tools.py<br/><i>Assembly pipeline</i>"]
+      end
+
+      subgraph RUNTIME["runtime/"]
+        RM["runs/manager.py"]
+        CP["checkpointer/"]
+        SB["stream_bridge/"]
+        ST["store/"]
+      end
+
+      subgraph SBOX["sandbox/"]
+        SBOX_BASE["sandbox.py<br/><i>Abstract base</i>"]
+        SBOX_LOCAL["local/local_sandbox.py"]
+      end
+
+      subgraph CFG["config/"]
+        APPCFG["app_config.py<br/><i>Root config model</i>"]
+      end
+
+      subgraph OTROS["Other Modules"]
+        MODELS["models/"]
+        MCP["mcp/"]
+        SKILLS["skills/"]
+        SUBAGENTS["subagents/"]
+        TRACING["tracing/"]
+        UPLOADS["uploads/"]
+        GUARDRAILS["guardrails/"]
+        COMMUNITY["community/"]
+        CLIENT["client.py"]
+        REFLECT["reflection/"]
+      end
+    end
+
+    FACTORY --> MDWS
+    FACTORY --> TOOLSYS
+    AGENT --> CFG
+    RM --> AGENTS
+
+    style HN fill:#0a0e1a,stroke:#ff6b3d,stroke-width:2px,color:#c4d4f7
+    style AGENTS fill:#161d35,stroke:#ff6b3d80,stroke-width:1px,color:#c4d4f7
+    style LEAD fill:#1e2748,stroke:#ff6b3d40,stroke-width:1px,color:#c4d4f7
+    style MDWS fill:#1e2748,stroke:#ff6b3d40,stroke-width:1px,color:#c4d4f7
+    style MEM_MOD fill:#1e2748,stroke:#ff6b3d40,stroke-width:1px,color:#c4d4f7
+    style TOOLSYS fill:#161d35,stroke:#ff6b3d80,stroke-width:1px,color:#c4d4f7
+    style RUNTIME fill:#161d35,stroke:#ff6b3d80,stroke-width:1px,color:#c4d4f7
+    style SBOX fill:#161d35,stroke:#ff6b3d80,stroke-width:1px,color:#c4d4f7
+    style CFG fill:#161d35,stroke:#ff6b3d80,stroke-width:1px,color:#c4d4f7
+    style OTROS fill:#161d35,stroke:#ff6b3d80,stroke-width:1px,color:#c4d4f7
+        </div>
+      </div>
+      <div id="hn-middleware" class="tab-content p-8">
+        <div class="mermaid">
+flowchart TD
+    REQ(["Agent Request"]) --> M1
+    M1["<b>1. ThreadData</b><br/>Create per-thread directories"]
+    M1 --> M2["<b>2. Uploads</b><br/>Track injected uploaded files"]
+    M2 --> M3["<b>3. Sandbox</b><br/>Acquire sandbox environment"]
+    M3 --> M4["<b>4. DanglingToolCall</b><br/>Fix incomplete tool calls"]
+    M4 --> M5["<b>5. LLMErrorHandling</b><br/>Normalize provider errors"]
+    M5 --> M6["<b>6. Guardrail</b><br/>Tool call authorization"]
+    M6 --> M7["<b>7. SandboxAudit</b><br/>Security logging"]
+    M7 --> M8["<b>8. ToolErrorHandling</b><br/>Convert tool exceptions"]
+    M8 --> M9["<b>9. Summarization</b><br/>Context reduction"]
+    M9 --> M10["<b>10. Todo</b><br/>Task tracking (plan mode)"]
+    M10 --> M11["<b>11. TokenUsage</b><br/>Token usage tracking"]
+    M11 --> M12["<b>12. Title</b><br/>Auto-generate titles"]
+    M12 --> M13["<b>13. Memory</b><br/>Queue memory updates"]
+    M13 --> M14["<b>14. ViewImage</b><br/>Inject image data"]
+    M14 --> M15["<b>15. DeferredToolFilter</b><br/>Lazy tool loading"]
+    M15 --> M16["<b>16. SubagentLimit</b><br/>Concurrent subagent limits"]
+    M16 --> M17["<b>17. LoopDetection</b><br/>Detect infinite loops"]
+    M17 --> M18["<b>18. Clarification</b><br/>Intercept clarification requests"]
+    M18 --> LLM(["LLM Response"])
+
+    style REQ fill:#1e2748,stroke:#ff6b3d,stroke-width:1px,color:#c4d4f7
+    style LLM fill:#1e2748,stroke:#00e5a0,stroke-width:1px,color:#c4d4f7
+    style M1 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M2 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M3 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M4 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M5 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M6 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M7 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M8 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M9 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M10 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M11 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M12 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M13 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M14 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M15 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M16 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M17 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style M18 fill:#161d35,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+        </div>
+      </div>
+      <div id="hn-flow" class="tab-content p-8">
+        <div class="mermaid">
+sequenceDiagram
+    participant GW as Gateway Service
+    participant RM as RunManager
+    participant LF as LeadAgent Factory
+    participant MW as Middleware Chain
+    participant LLM as LLM Provider
+    participant TOOL as Tool Assembly
+    participant SB as StreamBridge
+    participant CP as Checkpointer
+
+    GW->>RM: create_run(thread_id, input)
+    RM->>CP: load checkpoint state
+    CP-->>RM: ThreadState
+    RM->>LF: make_lead_agent(config)
+    LF->>LF: _build_middlewares(features)
+    LF-->>RM: Compiled LangGraph agent
+    RM->>MW: agent.invoke(state)
+
+    rect rgb(30, 39, 72, 0.3)
+        Note over MW,LLM: Middleware Chain Processing
+        MW->>MW: ThreadData → Sandbox → Guardrail → ...
+        MW->>LLM: Chat model invocation
+        LLM-->>MW: Response + tool_calls
+    end
+
+    alt Has tool calls
+        MW->>TOOL: Execute tool
+        TOOL-->>MW: Tool result
+        MW->>MW: Memory → TokenUsage → Title
+    end
+
+    MW-->>RM: Final state
+    RM->>CP: save checkpoint
+    RM->>SB: Emit SSE events
+    SB-->>GW: StreamingResponse
+        </div>
+      </div>
+      <div id="hn-memory" class="tab-content p-8">
+        <div class="mermaid">
+flowchart LR
+    subgraph L1["Layer 1: Prompt Injection"]
+      direction TB
+      PI["Format memory<br/>into system prompt"]
+    end
+
+    subgraph L2["Layer 2: JSON Storage"]
+      direction TB
+      JS["users/{user_id}/<br/>memory.json"]
+    end
+
+    subgraph L3["Layer 3: LLM Extraction"]
+      direction TB
+      LE["LLM-based<br/>memory extraction<br/>from conversation"]
+    end
+
+    subgraph L4["Layer 4: Update Queue"]
+      direction TB
+      UQ["Debounced<br/>update queue"]
+    end
+
+    L1 -->|"read"| L2
+    L3 -->|"extract"| L4
+    L4 -->|"debounced write"| L2
+
+    USER["👤 User Conversation"] -->|"trigger"| L3
+
+    style L1 fill:#161d35,stroke:#ff6b3d80,stroke-width:1px,color:#c4d4f7
+    style L2 fill:#161d35,stroke:#ff6b3d80,stroke-width:1px,color:#c4d4f7
+    style L3 fill:#161d35,stroke:#ff6b3d80,stroke-width:1px,color:#c4d4f7
+    style L4 fill:#161d35,stroke:#ff6b3d80,stroke-width:1px,color:#c4d4f7
+    style USER fill:#1e2748,stroke:#a8c0ff,stroke-width:1px,color:#c4d4f7
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="gradient-line max-w-5xl mx-auto"></div>
+
+<!-- Integration Section -->
+<section id="integration" class="relative max-w-7xl mx-auto px-6 py-24">
+  <span class="section-num">03</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-frost/10 text-frost border border-frost/20">CROSS-LAYER</span>
+    </div>
+    <h2 class="font-display text-4xl md:text-5xl font-bold text-white mb-3">Integration</h2>
+    <p class="text-frost/50 text-lg mb-12 max-w-2xl">Gateway → Harness 的依赖方向和集成模式。CI 强制 Harness 不可反向引用 Gateway。</p>
+
+    <div class="glow-border rounded-2xl p-8 bg-deep/40 backdrop-blur mb-12" style="border-color: rgba(168,192,255,0.15);">
+      <div class="mermaid">
+flowchart TD
+    subgraph GWSIDE["Gateway (app/gateway)"]
+      direction TB
+      APP["app.py<br/>FastAPI Factory"]
+      DEPS["deps.py<br/>DI Container"]
+      SVC["services.py<br/>Run Lifecycle"]
+      RTR["Routers<br/>16 API endpoints"]
+    end
+
+    subgraph HNSIDE["Harness (packages/harness/deerflow)"]
+      direction TB
+      AGT["agents/<br/>Agent Factory"]
+      RUN["runtime/<br/>Run Manager"]
+      TOOL["tools/<br/>Tool Assembly"]
+      CFG["config/<br/>App Config"]
+    end
+
+    APP -->|"mount routers"| RTR
+    RTR -->|"inject via"| DEPS
+    DEPS -->|"singleton access"| SVC
+    SVC -->|"create_run()"| RUN
+    RUN -->|"make_lead_agent()"| AGT
+    AGT -->|"get_available_tools()"| TOOL
+    APP -->|"get_app_config()"| CFG
+
+    GWSIDE -.->|"✅ Gateway → Harness"| HNSIDE
+    HNSIDE -.-x|"❌ Harness → Gateway"| GWSIDE
+
+    style GWSIDE fill:#0f1424,stroke:#00e5a0,stroke-width:2px,color:#c4d4f7
+    style HNSIDE fill:#0f1424,stroke:#ff6b3d,stroke-width:2px,color:#c4d4f7
+    style APP fill:#1e2748,stroke:#00e5a060,stroke-width:1px,color:#c4d4f7
+    style DEPS fill:#1e2748,stroke:#00e5a060,stroke-width:1px,color:#c4d4f7
+    style SVC fill:#1e2748,stroke:#00e5a060,stroke-width:1px,color:#c4d4f7
+    style RTR fill:#1e2748,stroke:#00e5a060,stroke-width:1px,color:#c4d4f7
+    style AGT fill:#1e2748,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style RUN fill:#1e2748,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style TOOL fill:#1e2748,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+    style CFG fill:#1e2748,stroke:#ff6b3d60,stroke-width:1px,color:#c4d4f7
+      </div>
+    </div>
+
+    <!-- Data flow cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur" style="border-color: rgba(168,192,255,0.15);">
+        <h3 class="text-white font-semibold mb-2 text-sm uppercase tracking-wider">Config Loading</h3>
+        <div class="font-mono text-xs text-frost/60 leading-relaxed">
+          <span class="text-accent">Gateway</span> → get_app_config() → <span class="text-ember">Harness</span><br>
+          <span class="text-frost/40">配置中心化，Gateway 启动时加载</span>
+        </div>
+      </div>
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur" style="border-color: rgba(168,192,255,0.15);">
+        <h3 class="text-white font-semibold mb-2 text-sm uppercase tracking-wider">Agent Creation</h3>
+        <div class="font-mono text-xs text-frost/60 leading-relaxed">
+          <span class="text-accent">Gateway</span> → make_lead_agent() → <span class="text-ember">Harness</span><br>
+          <span class="text-frost/40">配置驱动的 Agent 组装</span>
+        </div>
+      </div>
+      <div class="arch-card glow-border rounded-xl p-5 bg-deep/60 backdrop-blur" style="border-color: rgba(168,192,255,0.15);">
+        <h3 class="text-white font-semibold mb-2 text-sm uppercase tracking-wider">Runtime Embedding</h3>
+        <div class="font-mono text-xs text-frost/60 leading-relaxed">
+          <span class="text-accent">Gateway</span> → deerflow.runtime → <span class="text-ember">Harness</span><br>
+          <span class="text-frost/40">LangGraph 运行时嵌入 Gateway</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="gradient-line max-w-5xl mx-auto"></div>
+
+<!-- Interactive D3 Explorer -->
+<section id="interactive" class="relative max-w-7xl mx-auto px-6 py-24">
+  <span class="section-num">04</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-mist/10 text-mist border border-mist/20">INTERACTIVE</span>
+    </div>
+    <h2 class="font-display text-4xl md:text-5xl font-bold text-white mb-3">Explorer</h2>
+    <p class="text-frost/50 text-lg mb-12 max-w-2xl">交互式模块依赖关系图 — 点击节点查看详情，拖拽平移，滚轮缩放</p>
+
+    <div id="d3-tabs" class="tab-group glow-border rounded-2xl bg-deep/40 backdrop-blur overflow-hidden" style="border-color: rgba(196,212,247,0.15);">
+      <div class="flex border-b border-steel/50">
+        <button class="tab-btn active px-6 py-4 text-sm font-mono text-mist whitespace-nowrap" data-tab="d3-dep">Dependency Graph</button>
+        <button class="tab-btn px-6 py-4 text-sm font-mono text-frost/50 whitespace-nowrap" data-tab="d3-tree">File Tree</button>
+      </div>
+      <div id="d3-dep" class="tab-content active">
+        <div id="d3-dependency" class="d3-container w-full" style="height: 600px; position: relative;"></div>
+      </div>
+      <div id="d3-tree" class="tab-content">
+        <div id="d3-filetree" class="d3-container w-full" style="height: 600px; position: relative;"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="border-t border-steel/30 py-12 text-center">
+  <div class="max-w-7xl mx-auto px-6">
+    <p class="text-frost/30 text-sm font-mono">DeerFlow Backend Architecture Documentation</p>
+    <p class="text-frost/20 text-xs mt-2">Auto-generated from codebase analysis</p>
+  </div>
+</footer>
+
+<!-- Tooltip -->
+<div id="tooltip" class="tooltip"></div>
+
+<script>
+// Initialize Mermaid — disable auto-start so we control rendering
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'dark',
+  themeVariables: {
+    primaryColor: '#1e2748',
+    primaryTextColor: '#c4d4f7',
+    primaryBorderColor: '#00e5a0',
+    lineColor: '#1e2748',
+    secondaryColor: '#161d35',
+    tertiaryColor: '#0f1424',
+    background: '#0a0e1a',
+    mainBkg: '#1e2748',
+    nodeBorder: '#00e5a0',
+    clusterBkg: '#0f142480',
+    clusterBorder: '#00e5a040',
+    titleColor: '#c4d4f7',
+    edgeLabelBackground: '#0f1424',
+    fontFamily: 'JetBrains Mono, monospace',
+    fontSize: '13px'
+  },
+  flowchart: { htmlLabels: true, curve: 'basis', padding: 20 },
+  sequence: { actorMargin: 60, messageMargin: 40 }
+});
+
+// ── SVG zoom/pan helper ──────────────────────────────────────────────
+function attachSvgZoom(svgEl) {
+  const parent = svgEl.parentElement;
+  if (!parent) return;
+  // Wrap in a scrollable container
+  const wrap = document.createElement('div');
+  wrap.className = 'mermaid-zoom-wrap';
+  wrap.style.maxHeight = '560px';
+  parent.insertBefore(wrap, svgEl);
+  wrap.appendChild(svgEl);
+
+  let dragging = false, sx = 0, sy = 0;
+
+  // Compute initial viewBox from SVG attributes / BBox
+  function resolveDimensions() {
+    // 1. Try existing viewBox attribute
+    const raw = svgEl.getAttribute('viewBox');
+    if (raw) {
+      const parts = raw.split(/[\s,]+/).map(Number);
+      if (parts.length === 4 && parts.every(n => isFinite(n)) && parts[2] > 0 && parts[3] > 0) {
+        return { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+      }
+    }
+    // 2. Try width/height attributes (Mermaid often sets these)
+    const aw = parseFloat(svgEl.getAttribute('width')) || 0;
+    const ah = parseFloat(svgEl.getAttribute('height')) || 0;
+    if (aw > 0 && ah > 0) return { x: 0, y: 0, w: aw, h: ah };
+    // 3. Try getBoundingClientRect after a frame
+    const rect = svgEl.getBoundingClientRect();
+    if (rect.width > 1 && rect.height > 1) return { x: 0, y: 0, w: rect.width, h: rect.height };
+    // 4. Try BBox
+    try {
+      const bbox = svgEl.getBBox();
+      if (bbox.width > 0 && bbox.height > 0) {
+        return { x: bbox.x, y: bbox.y, w: bbox.width, h: bbox.height };
+      }
+    } catch(e) {}
+    // 5. Final fallback
+    return { x: 0, y: 0, w: 800, h: 400 };
+  }
+
+  let vb = resolveDimensions();
+
+  // Ensure SVG has a proper viewBox set
+  function applyViewBox() {
+    // NaN guard
+    const x = isFinite(vb.x) ? vb.x : 0;
+    const y = isFinite(vb.y) ? vb.y : 0;
+    const w = isFinite(vb.w) && vb.w > 0 ? vb.w : 800;
+    const h = isFinite(vb.h) && vb.h > 0 ? vb.h : 400;
+    svgEl.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+  }
+  applyViewBox();
+
+  // Store base zoom level derived from initial viewBox
+  let baseW = vb.w;
+
+  wrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 1.1 : 0.9;
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+    const mx = (e.clientX - rect.left) / rect.width;
+    const my = (e.clientY - rect.top) / rect.height;
+    const newW = Math.max(50, vb.w * factor);
+    const newH = Math.max(30, vb.h * factor);
+    vb.x -= mx * (newW - vb.w);
+    vb.y -= my * (newH - vb.h);
+    vb.w = newW;
+    vb.h = newH;
+    applyViewBox();
+  }, { passive: false });
+
+  wrap.addEventListener('mousedown', (e) => {
+    dragging = true; sx = e.clientX; sy = e.clientY;
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+    // Scale mouse delta to viewBox coordinates
+    const scaleX = vb.w / rect.width;
+    const scaleY = vb.h / rect.height;
+    vb.x -= (e.clientX - sx) * scaleX;
+    vb.y -= (e.clientY - sy) * scaleY;
+    sx = e.clientX; sy = e.clientY;
+    applyViewBox();
+  });
+  window.addEventListener('mouseup', () => { dragging = false; });
+}
+
+// ── Render mermaid in a container (handles unprocessed divs) ─────────
+async function renderMermaidInContainer(container) {
+  const divs = container.querySelectorAll('.mermaid:not([data-processed])');
+  for (const div of divs) {
+    try {
+      const id = 'mermaid-' + Math.random().toString(36).slice(2, 10);
+      const src = div.textContent;
+      const { svg } = await mermaid.render(id, src);
+      div.innerHTML = svg;
+      div.setAttribute('data-processed', 'true');
+      // Attach zoom/pan to the rendered SVG
+      const svgEl = div.querySelector('svg');
+      if (svgEl) attachSvgZoom(svgEl);
+    } catch (err) {
+      console.warn('Mermaid render error:', err);
+      div.innerHTML = '<p style="color:#ff6b3d;font-size:12px;">Diagram render failed</p>';
+    }
+  }
+}
+
+// ── Initial render: only visible (active tab) mermaid diagrams ───────
+document.addEventListener('DOMContentLoaded', async () => {
+  // Render all currently visible mermaid blocks
+  const activeTabs = document.querySelectorAll('.tab-content.active');
+  for (const tab of activeTabs) {
+    await renderMermaidInContainer(tab);
+  }
+  // Also render mermaid blocks outside tabs (hero, integration sections)
+  const standaloneMermaids = document.querySelectorAll(':not(.tab-content) > .mermaid:not([data-processed])');
+  for (const div of standaloneMermaids) {
+    try {
+      const id = 'mermaid-s-' + Math.random().toString(36).slice(2, 10);
+      const src = div.textContent;
+      const { svg } = await mermaid.render(id, src);
+      div.innerHTML = svg;
+      div.setAttribute('data-processed', 'true');
+      const svgEl = div.querySelector('svg');
+      if (svgEl) attachSvgZoom(svgEl);
+    } catch (err) {
+      console.warn('Mermaid render error:', err);
+    }
+  }
+});
+
+// Tab switching — each tab-group has its own accent color
+(function() {
+  // Map: parent container id → inactive color / active color
+  const groupColors = {
+    'gw-tabs':  { active: 'var(--color-accent, #00e5a0)', inactive: 'rgba(168,192,255,0.5)' },
+    'hn-tabs':  { active: 'var(--color-ember, #ff6b3d)',  inactive: 'rgba(168,192,255,0.5)' },
+    'd3-tabs':  { active: 'var(--color-mist, #c4d4f7)',   inactive: 'rgba(168,192,255,0.5)' },
+  };
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const parent = btn.closest('.tab-group');
+      if (!parent) return;
+      const gid = parent.id;
+      const colors = groupColors[gid] || groupColors['gw-tabs'];
+
+      // Deactivate all siblings
+      parent.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('active');
+        b.style.color = colors.inactive;
+      });
+      // Activate clicked
+      btn.classList.add('active');
+      btn.style.color = colors.active;
+
+      // Switch tab content
+      const tabId = btn.dataset.tab;
+      parent.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      const target = document.getElementById(tabId);
+      if (target) {
+        target.classList.add('active');
+        await renderMermaidInContainer(target);
+      }
+    });
+  });
+})();
+
+// Fade-in on scroll
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1 });
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+// D3 Dependency Graph
+(function() {
+  const data = {
+    nodes: [
+      // Gateway nodes
+      { id: "app.py", group: "gateway-core", label: "app.py", desc: "FastAPI Application Factory. Creates app, mounts middleware stack (CORS, Auth, CSRF), includes all routers, manages lifespan with AsyncExitStack." },
+      { id: "config.py", group: "gateway-core", label: "config.py", desc: "Gateway Configuration. Manages host, port, documentation settings. Environment variable mapping with singleton pattern." },
+      { id: "auth_middleware.py", group: "gateway-mw", label: "auth_middleware.py", desc: "Global Authentication Middleware. Validates JWT tokens from cookies, handles internal auth tokens, injects user context into request.state." },
+      { id: "csrf_middleware.py", group: "gateway-mw", label: "csrf_middleware.py", desc: "CSRF Protection. Double Submit Cookie pattern. Validates Origin headers, compares cookies and headers for state-changing requests." },
+      { id: "authz.py", group: "gateway-mw", label: "authz.py", desc: "Authorization decorators. @require_auth and @require_permission. Thread ownership verification." },
+      { id: "deps.py", group: "gateway-core", label: "deps.py", desc: "FastAPI Dependency Injectors. Singleton accessors for RunManager, StreamBridge, Checkpointer. Returns 503 when dependencies unavailable." },
+      { id: "services.py", group: "gateway-core", label: "services.py", desc: "Run Lifecycle Services. Centralized run creation logic, SSE frame formatting, event stream consumption." },
+      { id: "auth/", group: "gateway-auth", label: "auth/", desc: "Authentication subsystem: JWT (HS256), LocalProvider (email/password), SQLiteRepository, password hashing (v1/v2), credential files." },
+      { id: "routers/threads.py", group: "router-core", label: "threads.py", desc: "Thread lifecycle management. Complete CRUD, LangGraph Platform compatibility, state serialization, server-side metadata." },
+      { id: "routers/thread_runs.py", group: "router-core", label: "thread_runs.py", desc: "Thread-scoped runs. Stream/block/wait modes, SSE event streaming, run cancellation, message pagination." },
+      { id: "routers/runs.py", group: "router-core", label: "runs.py", desc: "Stateless runs. Auto-creates temporary threads, preserves conversation history, stream without pre-existing thread." },
+      { id: "routers/agents.py", group: "router-mgmt", label: "agents.py", desc: "Agent management endpoints. Agent lifecycle operations, configuration access." },
+      { id: "routers/skills.py", group: "router-mgmt", label: "skills.py", desc: "Skill CRUD operations. List, detail, enable/disable, install from .skill archives." },
+      { id: "routers/uploads.py", group: "router-data", label: "uploads.py", desc: "File upload system. Multi-file upload with PDF/PPT/Excel/Word conversion. Thread-isolated storage." },
+      { id: "routers/artifacts.py", group: "router-data", label: "artifacts.py", desc: "AI-generated file serving. XSS protection for active content types, force download option." },
+      { id: "routers/memory.py", group: "router-mgmt", label: "memory.py", desc: "Memory system management. Data access, reload, configuration, per-user isolation." },
+      { id: "routers/mcp.py", group: "router-mgmt", label: "mcp.py", desc: "MCP server configuration. Get/update runtime MCP config." },
+      { id: "routers/auth.py", group: "router-ext", label: "auth.py", desc: "Authentication endpoints. Login, register, initialize, logout, password change." },
+      { id: "routers/channels.py", group: "router-ext", label: "channels.py", desc: "IM channel integrations. Feishu, Slack, Telegram, DingTalk message handling." },
+      // Harness nodes
+      { id: "agents/factory.py", group: "harness-agent", label: "factory.py", desc: "SDK-level pure parameter factory. Creates agents from RuntimeFeatures. Assembles middleware chains from feature flags." },
+      { id: "agents/features.py", group: "harness-agent", label: "features.py", desc: "RuntimeFeatures data class with @Next/@Prev decorators. Declarative feature enabling/disabling." },
+      { id: "agents/lead_agent/", group: "harness-agent", label: "lead_agent/", desc: "Application layer factory. Config-driven agent assembly via _build_middlewares(). System prompt templates." },
+      { id: "agents/middlewares/", group: "harness-mw", label: "middlewares/", desc: "18 ordered middlewares: ThreadData, Uploads, Sandbox, DanglingToolCall, LLMError, Guardrail, SandboxAudit, ToolError, Summarization, Todo, TokenUsage, Title, Memory, ViewImage, DeferredToolFilter, SubagentLimit, LoopDetection, Clarification." },
+      { id: "agents/thread_state.py", group: "harness-agent", label: "thread_state.py", desc: "Extended LangGraph state. ThreadState, SandboxState, ThreadDataState schemas with custom reducers for artifacts, images, todos." },
+      { id: "agents/memory/", group: "harness-mem", label: "memory/", desc: "4-layer memory: Prompt injection formatting, JSON file storage, LLM-based extraction, Debounced update queue. Per-user isolation." },
+      { id: "tools/", group: "harness-tool", label: "tools/", desc: "Tool assembly pipeline. Sources: Config-defined → MCP → Built-in → Subagent. Skill management tool with lazy loading." },
+      { id: "sandbox/", group: "harness-sandbox", label: "sandbox/", desc: "Abstract sandbox interface. Implementations: Local (path mapping), Docker (container isolation), AIO. PathMapping, read-only mounts, output masking." },
+      { id: "runtime/", group: "harness-runtime", label: "runtime/", desc: "LangGraph-compatible runtime. RunManager, Checkpointer (state persistence), StreamBridge (streaming), Store (abstract storage)." },
+      { id: "config/", group: "harness-core", label: "config/", desc: "Root configuration model. Hot-reload, environment variable resolution, version checking. Central config hub." },
+      { id: "models/", group: "harness-core", label: "models/", desc: "Model factory with multi-provider support. OpenAI, Claude, vLLM, and others." },
+      { id: "mcp/", group: "harness-ext", label: "mcp/", desc: "Model Context Protocol integration. External tool server connections." },
+      { id: "skills/", group: "harness-ext", label: "skills/", desc: "Skills discovery and loading. Custom skill registration." },
+      { id: "subagents/", group: "harness-ext", label: "subagents/", desc: "Subagent delegation system. Concurrent subagent management." },
+      { id: "tracing/", group: "harness-ext", label: "tracing/", desc: "Tracing integration. LangSmith and Langfuse support." },
+    ],
+    links: [
+      // Gateway internal
+      { source: "app.py", target: "auth_middleware.py" },
+      { source: "app.py", target: "csrf_middleware.py" },
+      { source: "app.py", target: "config.py" },
+      { source: "app.py", target: "routers/threads.py" },
+      { source: "app.py", target: "routers/thread_runs.py" },
+      { source: "app.py", target: "routers/runs.py" },
+      { source: "app.py", target: "routers/agents.py" },
+      { source: "app.py", target: "routers/skills.py" },
+      { source: "app.py", target: "routers/uploads.py" },
+      { source: "app.py", target: "routers/artifacts.py" },
+      { source: "app.py", target: "routers/memory.py" },
+      { source: "app.py", target: "routers/mcp.py" },
+      { source: "app.py", target: "routers/auth.py" },
+      { source: "app.py", target: "routers/channels.py" },
+      { source: "auth_middleware.py", target: "authz.py" },
+      { source: "auth_middleware.py", target: "auth/" },
+      { source: "routers/threads.py", target: "deps.py" },
+      { source: "routers/thread_runs.py", target: "deps.py" },
+      { source: "routers/thread_runs.py", target: "services.py" },
+      { source: "routers/runs.py", target: "services.py" },
+      { source: "routers/runs.py", target: "deps.py" },
+      // Gateway → Harness
+      { source: "deps.py", target: "runtime/", type: "cross" },
+      { source: "services.py", target: "runtime/", type: "cross" },
+      { source: "app.py", target: "config/", type: "cross" },
+      // Harness internal
+      { source: "agents/factory.py", target: "agents/features.py" },
+      { source: "agents/factory.py", target: "agents/middlewares/" },
+      { source: "agents/factory.py", target: "tools/" },
+      { source: "agents/lead_agent/", target: "agents/factory.py" },
+      { source: "agents/lead_agent/", target: "config/" },
+      { source: "agents/lead_agent/", target: "agents/middlewares/" },
+      { source: "agents/middlewares/", target: "agents/memory/" },
+      { source: "agents/middlewares/", target: "sandbox/" },
+      { source: "tools/", target: "mcp/" },
+      { source: "tools/", target: "skills/" },
+      { source: "tools/", target: "subagents/" },
+      { source: "runtime/", target: "agents/lead_agent/" },
+      { source: "runtime/", target: "models/" },
+      { source: "tracing/", target: "runtime/" },
+    ]
+  };
+
+  const colorMap = {
+    "gateway-core": "#00e5a0",
+    "gateway-mw": "#00b37d",
+    "gateway-auth": "#008f64",
+    "router-core": "#4dd4ac",
+    "router-mgmt": "#33b892",
+    "router-data": "#1f9c78",
+    "router-ext": "#15805e",
+    "harness-core": "#ff6b3d",
+    "harness-agent": "#ff8c66",
+    "harness-mw": "#ffad8f",
+    "harness-mem": "#cc5530",
+    "harness-tool": "#e6734a",
+    "harness-sandbox": "#d9603a",
+    "harness-runtime": "#ff5020",
+    "harness-ext": "#ff9070",
+  };
+
+  const groupLabels = {
+    "gateway-core": "GW Core",
+    "gateway-mw": "GW Middleware",
+    "gateway-auth": "GW Auth",
+    "router-core": "Router: Core",
+    "router-mgmt": "Router: Mgmt",
+    "router-data": "Router: Data",
+    "router-ext": "Router: Ext",
+    "harness-core": "HN Core",
+    "harness-agent": "HN Agent",
+    "harness-mw": "HN Middleware",
+    "harness-mem": "HN Memory",
+    "harness-tool": "HN Tools",
+    "harness-sandbox": "HN Sandbox",
+    "harness-runtime": "HN Runtime",
+    "harness-ext": "HN Extensions",
+  };
+
+  const width = document.getElementById('d3-dependency').clientWidth;
+  const height = 600;
+
+  const simulation = d3.forceSimulation(data.nodes)
+    .force("link", d3.forceLink(data.links).id(d => d.id).distance(d => d.type === 'cross' ? 120 : 60))
+    .force("charge", d3.forceManyBody().strength(-200))
+    .force("center", d3.forceCenter(width / 2, height / 2))
+    .force("collision", d3.forceCollide().radius(30));
+
+  const svg = d3.select("#d3-dependency")
+    .append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  const g = svg.append("g");
+
+  // Zoom
+  const zoom = d3.zoom()
+    .scaleExtent([0.3, 3])
+    .on("zoom", (event) => g.attr("transform", event.transform));
+  svg.call(zoom);
+
+  // Arrow marker
+  svg.append("defs").append("marker")
+    .attr("id", "arrowhead")
+    .attr("viewBox", "0 -5 10 10")
+    .attr("refX", 22)
+    .attr("refY", 0)
+    .attr("markerWidth", 6)
+    .attr("markerHeight", 6)
+    .attr("orient", "auto")
+    .append("path")
+    .attr("d", "M0,-5L10,0L0,5")
+    .attr("fill", "#1e2748");
+
+  // Links
+  const link = g.append("g")
+    .selectAll("line")
+    .data(data.links)
+    .enter().append("line")
+    .attr("stroke", d => d.type === 'cross' ? "#a8c0ff40" : "#1e2748")
+    .attr("stroke-width", d => d.type === 'cross' ? 2 : 1)
+    .attr("stroke-dasharray", d => d.type === 'cross' ? "6,3" : "none")
+    .attr("marker-end", "url(#arrowhead)");
+
+  // Node groups
+  const node = g.append("g")
+    .selectAll("g")
+    .data(data.nodes)
+    .enter().append("g")
+    .call(d3.drag()
+      .on("start", (event, d) => {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x; d.fy = d.y;
+      })
+      .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
+      .on("end", (event, d) => {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null; d.fy = null;
+      })
+    );
+
+  // Node circles
+  node.append("circle")
+    .attr("r", d => d.id.startsWith("routers/") ? 6 : d.id.includes("/") ? 8 : 10)
+    .attr("fill", d => colorMap[d.group] || "#1e2748")
+    .attr("stroke", d => d.group.startsWith("gateway") || d.group.startsWith("router") ? "#00e5a050" : "#ff6b3d50")
+    .attr("stroke-width", 1.5)
+    .style("cursor", "pointer")
+    .on("mouseover", function(event, d) {
+      d3.select(this).attr("r", d.id.startsWith("routers/") ? 9 : d.id.includes("/") ? 11 : 13);
+      const tooltip = document.getElementById('tooltip');
+      tooltip.innerHTML = `<div class="font-mono text-xs text-accent mb-1">${d.id}</div><div class="text-xs text-frost/70 leading-relaxed">${d.desc}</div><div class="mt-2"><span class="file-tag text-xs" style="background:${colorMap[d.group]}20;color:${colorMap[d.group]};border:1px solid ${colorMap[d.group]}40;">${groupLabels[d.group]}</span></div>`;
+      tooltip.classList.add('show');
+      const rect = document.getElementById('d3-dependency').getBoundingClientRect();
+      tooltip.style.left = (event.clientX - rect.left + 15) + 'px';
+      tooltip.style.top = (event.clientY - rect.top - 10) + 'px';
+    })
+    .on("mouseout", function(event, d) {
+      d3.select(this).attr("r", d.id.startsWith("routers/") ? 6 : d.id.includes("/") ? 8 : 10);
+      document.getElementById('tooltip').classList.remove('show');
+    });
+
+  // Labels
+  node.append("text")
+    .text(d => d.label.length > 18 ? d.label.substring(0, 16) + '..' : d.label)
+    .attr("dy", d => (d.id.startsWith("routers/") ? 6 : d.id.includes("/") ? 8 : 10) + 14)
+    .attr("text-anchor", "middle")
+    .attr("fill", "#a8c0ff")
+    .attr("font-size", "9px")
+    .attr("font-family", "JetBrains Mono, monospace")
+    .style("pointer-events", "none");
+
+  simulation.on("tick", () => {
+    link
+      .attr("x1", d => d.source.x)
+      .attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x)
+      .attr("y2", d => d.target.y);
+    node.attr("transform", d => `translate(${d.x},${d.y})`);
+  });
+})();
+
+// D3 File Tree (Collapsible)
+(function() {
+  let nodeCounter = 0;
+
+  const treeData = {
+    name: "backend/",
+    children: [
+      {
+        name: "app/gateway/",
+        _color: "#00e5a0",
+        children: [
+          { name: "app.py", _desc: "FastAPI Factory", _color: "#00e5a0" },
+          { name: "config.py", _desc: "Gateway Config", _color: "#00e5a0" },
+          { name: "auth_middleware.py", _desc: "JWT Auth Middleware", _color: "#00b37d" },
+          { name: "csrf_middleware.py", _desc: "CSRF Protection", _color: "#00b37d" },
+          { name: "authz.py", _desc: "Authorization Decorators", _color: "#00b37d" },
+          { name: "deps.py", _desc: "Dependency Injection", _color: "#00e5a0" },
+          { name: "services.py", _desc: "Run Lifecycle Services", _color: "#00e5a0" },
+          {
+            name: "auth/",
+            _color: "#008f64",
+            children: [
+              { name: "config.py", _desc: "JWT Config", _color: "#008f64" },
+              { name: "jwt.py", _desc: "JWT Token Mgmt", _color: "#008f64" },
+              { name: "providers.py", _desc: "Auth Provider ABC", _color: "#008f64" },
+              { name: "local_provider.py", _desc: "Email/Password Auth", _color: "#008f64" },
+              { name: "models.py", _desc: "User Data Models", _color: "#008f64" },
+              { name: "password.py", _desc: "Password Hashing", _color: "#008f64" },
+              {
+                name: "repositories/",
+                _color: "#008f64",
+                children: [
+                  { name: "base.py", _desc: "Repository Interface", _color: "#008f64" },
+                  { name: "sqlite.py", _desc: "SQLite Implementation", _color: "#008f64" },
+                ]
+              }
+            ]
+          },
+          {
+            name: "routers/",
+            _color: "#4dd4ac",
+            children: [
+              { name: "threads.py", _desc: "Thread CRUD", _color: "#4dd4ac" },
+              { name: "thread_runs.py", _desc: "Thread Runs + SSE", _color: "#4dd4ac" },
+              { name: "runs.py", _desc: "Stateless Runs", _color: "#4dd4ac" },
+              { name: "agents.py", _desc: "Agent Mgmt", _color: "#33b892" },
+              { name: "skills.py", _desc: "Skill CRUD", _color: "#33b892" },
+              { name: "models.py", _desc: "Model Listing", _color: "#33b892" },
+              { name: "mcp.py", _desc: "MCP Config", _color: "#33b892" },
+              { name: "memory.py", _desc: "Memory Mgmt", _color: "#33b892" },
+              { name: "uploads.py", _desc: "File Upload", _color: "#1f9c78" },
+              { name: "artifacts.py", _desc: "File Serving", _color: "#1f9c78" },
+              { name: "feedback.py", _desc: "Feedback CRUD", _color: "#1f9c78" },
+              { name: "auth.py", _desc: "Auth Endpoints", _color: "#15805e" },
+              { name: "channels.py", _desc: "IM Integrations", _color: "#15805e" },
+              { name: "suggestions.py", _desc: "Follow-up Questions", _color: "#15805e" },
+              { name: "assistants_compat.py", _desc: "LangGraph Compat", _color: "#15805e" },
+            ]
+          }
+        ]
+      },
+      {
+        name: "packages/harness/deerflow/",
+        _color: "#ff6b3d",
+        children: [
+          {
+            name: "agents/",
+            _color: "#ff8c66",
+            children: [
+              { name: "factory.py", _desc: "SDK-level Factory", _color: "#ff8c66" },
+              { name: "features.py", _desc: "RuntimeFeatures", _color: "#ff8c66" },
+              { name: "thread_state.py", _desc: "State Schema", _color: "#ff8c66" },
+              {
+                name: "lead_agent/",
+                _color: "#ff8c66",
+                children: [
+                  { name: "agent.py", _desc: "App-level Factory", _color: "#ff8c66" },
+                  { name: "prompt.py", _desc: "System Prompts", _color: "#ff8c66" },
+                ]
+              },
+              {
+                name: "middlewares/",
+                _color: "#ffad8f",
+                children: [
+                  { name: "ThreadData", _desc: "Per-thread dirs", _color: "#ffad8f" },
+                  { name: "Sandbox", _desc: "Sandbox acquire", _color: "#ffad8f" },
+                  { name: "Guardrail", _desc: "Tool auth", _color: "#ffad8f" },
+                  { name: "Summarization", _desc: "Context reduction", _color: "#ffad8f" },
+                  { name: "Memory", _desc: "Memory updates", _color: "#cc5530" },
+                  { name: "LoopDetection", _desc: "Infinite loop detect", _color: "#ffad8f" },
+                  { name: "+ 12 more", _desc: "18 total middlewares", _color: "#ffad8f" },
+                ]
+              },
+              {
+                name: "memory/",
+                _color: "#cc5530",
+                children: [
+                  { name: "storage.py", _desc: "JSON File Store", _color: "#cc5530" },
+                  { name: "updater.py", _desc: "LLM Extraction", _color: "#cc5530" },
+                  { name: "queue.py", _desc: "Debounce Queue", _color: "#cc5530" },
+                ]
+              }
+            ]
+          },
+          { name: "tools/", _desc: "Tool Assembly Pipeline", _color: "#e6734a" },
+          {
+            name: "sandbox/",
+            _color: "#d9603a",
+            children: [
+              { name: "sandbox.py", _desc: "Abstract Base", _color: "#d9603a" },
+              { name: "local/", _desc: "Local Path Mapping", _color: "#d9603a" },
+            ]
+          },
+          {
+            name: "runtime/",
+            _color: "#ff5020",
+            children: [
+              { name: "runs/manager.py", _desc: "Run Manager", _color: "#ff5020" },
+              { name: "checkpointer/", _desc: "State Persistence", _color: "#ff5020" },
+              { name: "stream_bridge/", _desc: "Streaming", _color: "#ff5020" },
+            ]
+          },
+          { name: "config/", _desc: "Root Config Model", _color: "#ff6b3d" },
+          { name: "models/", _desc: "Multi-Provider Models", _color: "#ff6b3d" },
+          { name: "mcp/", _desc: "MCP Integration", _color: "#ff9070" },
+          { name: "skills/", _desc: "Skills Discovery", _color: "#ff9070" },
+          { name: "subagents/", _desc: "Subagent Delegation", _color: "#ff9070" },
+          { name: "tracing/", _desc: "LangSmith/Langfuse", _color: "#ff9070" },
+        ]
+      }
+    ]
+  };
+
+  const width = document.getElementById('d3-filetree').clientWidth;
+  const height = 600;
+  const margin = { top: 30, right: 120, bottom: 30, left: 120 };
+
+  const svg = d3.select("#d3-filetree")
+    .append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  const g = svg.append("g")
+    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+  const zoom = d3.zoom()
+    .scaleExtent([0.3, 3])
+    .on("zoom", (event) => g.attr("transform", event.transform));
+  svg.call(zoom);
+
+  const root = d3.hierarchy(treeData);
+  root.x0 = 0;
+  root.y0 = 0;
+
+  const treeLayout = d3.tree().nodeSize([18, 180]);
+  treeLayout(root);
+
+  // Initial collapse
+  function collapse(d) {
+    if (d.children) {
+      d._children = d.children;
+      d._children.forEach(collapse);
+      d.children = null;
+    }
+  }
+  if (root.children) root.children.forEach(collapse);
+  update(root);
+
+  function update(source) {
+    const treenodes = root.descendants();
+    const links = root.links();
+
+    // Normalize fixed depth
+    treenodes.forEach(d => { d.y = d.depth * 100; });
+
+    const node = g.selectAll("g.node")
+      .data(treenodes, d => d.id || (d.id = ++nodeCounter));
+
+    const nodeEnter = node.enter().append("g")
+      .attr("class", "node")
+      .attr("transform", `translate(${source.y0},${source.x0})`)
+      .on("click", (event, d) => {
+        if (d.children) {
+          d._children = d.children;
+          d.children = null;
+        } else {
+          d.children = d._children;
+          d._children = null;
+        }
+        update(d);
+      });
+
+    nodeEnter.append("circle")
+      .attr("r", 4)
+      .attr("fill", d => d.data._color || "#1e2748")
+      .attr("stroke", d => d._children ? "#a8c0ff" : "transparent")
+      .attr("stroke-width", 2)
+      .style("cursor", "pointer");
+
+    nodeEnter.append("text")
+      .attr("dy", ".35em")
+      .attr("x", d => d.children || d._children ? -10 : 10)
+      .attr("text-anchor", d => d.children || d._children ? "end" : "start")
+      .text(d => d.data.name)
+      .attr("fill", d => d.data._color || "#a8c0ff")
+      .attr("font-size", "11px")
+      .attr("font-family", "JetBrains Mono, monospace")
+      .style("cursor", "pointer")
+      .on("mouseover", function(event, d) {
+        if (d.data._desc) {
+          const tooltip = document.getElementById('tooltip');
+          tooltip.innerHTML = `<div class="font-mono text-xs" style="color:${d.data._color}" >${d.data.name}</div><div class="text-xs text-frost/70 mt-1">${d.data._desc}</div>`;
+          tooltip.classList.add('show');
+          const rect = document.getElementById('d3-filetree').getBoundingClientRect();
+          tooltip.style.left = (event.clientX - rect.left + 15) + 'px';
+          tooltip.style.top = (event.clientY - rect.top - 10) + 'px';
+        }
+      })
+      .on("mouseout", () => {
+        document.getElementById('tooltip').classList.remove('show');
+      });
+
+    const nodeUpdate = nodeEnter.merge(node);
+    nodeUpdate.transition().duration(300)
+      .attr("transform", d => `translate(${d.y},${d.x})`);
+
+    const nodeExit = node.exit().transition().duration(300)
+      .attr("transform", `translate(${source.y},${source.x})`)
+      .remove();
+    nodeExit.select("circle").attr("r", 0);
+    nodeExit.select("text").style("fill-opacity", 0);
+
+    const link = g.selectAll("path.link")
+      .data(links, d => d.target.id);
+
+    const linkEnter = link.enter().insert("path", "g")
+      .attr("class", "link")
+      .attr("d", () => {
+        const o = { x: source.x0, y: source.y0 };
+        return diagonal(o, o);
+      });
+
+    const linkUpdate = linkEnter.merge(link);
+    linkUpdate.transition().duration(300)
+      .attr("d", d => diagonal(d.source, d.target))
+      .attr("fill", "none")
+      .attr("stroke", "#1e2748")
+      .attr("stroke-width", 1.5);
+
+    link.exit().transition().duration(300)
+      .attr("d", () => {
+        const o = { x: source.x, y: source.y };
+        return diagonal(o, o);
+      })
+      .remove();
+
+    treenodes.forEach(d => {
+      d.x0 = d.x;
+      d.y0 = d.y;
+    });
+  }
+
+  function diagonal(s, d) {
+    return `M ${s.y} ${s.x}
+            C ${(s.y + d.y) / 2} ${s.x},
+              ${(s.y + d.y) / 2} ${d.x},
+              ${d.y} ${d.x}`;
+  }
+
+})();
+
+// Particle background
+(function() {
+  const canvas = document.getElementById('particles');
+  const ctx = canvas.getContext('2d');
+  let particles = [];
+  const maxParticles = 40;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function Particle() {
+    this.x = Math.random() * canvas.width;
+    this.y = Math.random() * canvas.height;
+    this.vx = (Math.random() - 0.5) * 0.3;
+    this.vy = (Math.random() - 0.5) * 0.3;
+    this.size = Math.random() * 2 + 0.5;
+    this.alpha = Math.random() * 0.15 + 0.05;
+  }
+
+  for (let i = 0; i < maxParticles; i++) {
+    particles.push(new Particle());
+  }
+
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach(p => {
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+      if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0, 229, 160, ${p.alpha})`;
+      ctx.fill();
+    });
+
+    // Draw connections
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const dx = particles[i].x - particles[j].x;
+        const dy = particles[i].y - particles[j].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 150) {
+          ctx.beginPath();
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          ctx.strokeStyle = `rgba(0, 229, 160, ${0.03 * (1 - dist / 150)})`;
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        }
+      }
+    }
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

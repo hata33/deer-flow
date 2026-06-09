@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeerFlow Module Essence</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { mono: ['JetBrains Mono','monospace'], display: ['Space Grotesk','sans-serif'] },
+      colors: {
+        midnight:'#0a0e1a', deep:'#0f1424', slate:'#161d35', steel:'#1e2748',
+        accent:'#00e5a0', ember:'#ff6b3d', frost:'#a8c0ff', mist:'#c4d4f7',
+        layer0:'#6366f1', layer1:'#00e5a0', layer2:'#f59e0b', layer3:'#3b82f6', layer4:'#ec4899',
+      }
+    }
+  }
+}
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:#0a0e1a;color:#c4d4f7;font-family:'Space Grotesk',sans-serif;overflow-x:hidden}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:#0f1424}
+::-webkit-scrollbar-thumb{background:#1e2748;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#00e5a0}
+
+.grid-bg{background-image:linear-gradient(rgba(99,102,241,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(99,102,241,.03) 1px,transparent 1px);background-size:40px 40px}
+
+.glow-border{border:1px solid rgba(99,102,241,.15);box-shadow:0 0 20px rgba(99,102,241,.05),inset 0 0 20px rgba(99,102,241,.02)}
+.gradient-line{height:2px;background:linear-gradient(90deg,transparent,#6366f1,#00e5a0,#f59e0b,#3b82f6,#ec4899,transparent);background-size:200% 100%;animation:gradient-flow 5s linear infinite}
+@keyframes gradient-flow{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+.mermaid-zoom-wrap{overflow:hidden;position:relative;cursor:grab;width:100%}
+.mermaid-zoom-wrap:active{cursor:grabbing}
+.mermaid-zoom-wrap svg{min-width:600px}
+
+.tab-btn{transition:all .3s;position:relative}
+.tab-btn.active::after{content:'';position:absolute;bottom:-2px;left:0;right:0;height:2px;border-radius:1px}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+.tooltip{position:absolute;background:#161d35;border:1px solid #1e2748;border-radius:8px;padding:12px 16px;font-size:13px;pointer-events:none;z-index:100;max-width:350px;box-shadow:0 8px 32px rgba(0,0,0,.4);opacity:0;transition:opacity .2s}
+.tooltip.show{opacity:1}
+
+.file-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-family:'JetBrains Mono',monospace;margin:2px;transition:all .2s}
+.file-tag:hover{transform:scale(1.05)}
+
+.section-num{font-family:'JetBrains Mono',monospace;font-size:80px;font-weight:700;color:rgba(99,102,241,.06);position:absolute;top:-20px;left:-10px;line-height:1;user-select:none}
+
+.mod-card{transition:all .3s cubic-bezier(.16,1,.3,1);cursor:pointer}
+.mod-card:hover{transform:translateY(-4px)}
+.mod-card .mod-essence{max-height:0;overflow:hidden;transition:max-height .4s cubic-bezier(.16,1,.3,1),opacity .3s;opacity:0}
+.mod-card.expanded .mod-essence{max-height:300px;opacity:1}
+
+#particles{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0}
+
+.nav-link{position:relative;transition:color .3s}
+.nav-link::after{content:'';position:absolute;bottom:-4px;left:0;width:0;height:2px;background:#6366f1;transition:width .3s}
+.nav-link:hover::after{width:100%}
+
+.d3-container svg text{font-family:'JetBrains Mono',monospace;fill:#a8c0ff}
+
+@keyframes fade-up{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+.anim-up{animation:fade-up .6s cubic-bezier(.16,1,.3,1) both}
+</style>
+</head>
+<body class="grid-bg">
+<canvas id="particles"></canvas>
+
+<!-- Nav -->
+<nav class="fixed top-0 w-full z-50 backdrop-blur-xl bg-midnight/80 border-b border-steel/50">
+  <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-layer0 to-frost flex items-center justify-center">
+        <span class="text-midnight font-bold text-sm font-mono">DF</span>
+      </div>
+      <span class="font-display font-semibold text-mist text-lg">Module Essence</span>
+      <span class="file-tag bg-layer0/10 text-layer0 border border-layer0/20 ml-2">20 Modules</span>
+    </div>
+    <div class="hidden md:flex items-center gap-8 text-sm text-frost/70">
+      <a href="#overview" class="nav-link hover:text-layer0">Overview</a>
+      <a href="#layers" class="nav-link hover:text-layer0">5 Layers</a>
+      <a href="#detail" class="nav-link hover:text-layer0">Detail</a>
+      <a href="#graph" class="nav-link hover:text-layer0">Graph</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header id="overview" class="relative min-h-screen flex items-center justify-center pt-16">
+  <div class="absolute inset-0 overflow-hidden">
+    <div class="absolute top-1/4 left-1/4 w-96 h-96 bg-layer0/5 rounded-full blur-3xl"></div>
+    <div class="absolute bottom-1/4 right-1/3 w-96 h-96 bg-layer3/5 rounded-full blur-3xl"></div>
+  </div>
+  <div class="relative z-10 max-w-5xl mx-auto px-6 text-center">
+    <div class="inline-block mb-6">
+      <span class="file-tag bg-layer0/10 text-layer0 border border-layer0/20 text-xs">各模块本质 · MODULE ESSENCE</span>
+    </div>
+    <h1 class="font-display text-5xl md:text-7xl font-bold text-white mb-6 tracking-tight">
+      DeerFlow <span class="text-layer0">Architecture</span>
+    </h1>
+    <p class="text-lg md:text-xl text-frost/50 max-w-3xl mx-auto mb-12 font-light leading-relaxed">
+      20 个模块，5 个架构层级。每个模块用一个句子概括其本质——<br>
+      它做什么、为什么存在、和谁交互。点击任意模块卡片展开详情。
+    </p>
+
+    <!-- Layer overview diagram -->
+    <div class="glow-border rounded-2xl p-8 bg-deep/40 backdrop-blur max-w-5xl mx-auto">
+      <div class="mermaid">
+flowchart TB
+    subgraph L4["<b>Interface Layer</b>  接口层"]
+      GW["<b>Gateway</b><br/>统一入口 · REST API + 嵌入式运行时"]
+      CH["<b>Channels</b><br/>IM 多平台接入 · 飞书/钉钉/Slack"]
+      FE["<b>Frontend</b><br/>SSE 流式消息渲染系统"]
+    end
+
+    subgraph L3["<b>Integration Layer</b>  集成层"]
+      RT["<b>Runtime</b><br/>Agent 图后台执行 + 事件推送"]
+      TR["<b>Tracing</b><br/>可观测性桥梁 · LangSmith/Langfuse"]
+      MCP["<b>MCP</b><br/>外部工具缓存加载层"]
+      COMM["<b>Community</b><br/>可选扩展工具集"]
+    end
+
+    subgraph L2["<b>Security Layer</b>  安全层"]
+      SB["<b>Sandbox</b><br/>隔离环境抽象 · 本地/容器"]
+      UP["<b>Uploads</b><br/>文件上传安全逻辑层"]
+      GR["<b>Guardrails</b><br/>工具调用前置策略授权"]
+    end
+
+    subgraph L1["<b>Agent Core</b>  代理核心"]
+      AG["<b>Agent</b><br/>中间件链驱动的 LLM 编排器"]
+      TOOL["<b>Tools</b><br/>按优先级装配的工具管线"]
+      SK["<b>Skills</b><br/>按需加载知识包"]
+      SA["<b>Subagents</b><br/>任务委派与并行执行"]
+      MEM["<b>Memory</b><br/>跨会话用户画像提取与注入"]
+    end
+
+    subgraph L0["<b>Foundation Layer</b>  基础层"]
+      CFG["<b>Config</b><br/>统一声明层 · 热更新"]
+      REF["<b>Reflection</b><br/>字符串路径到对象的解析器"]
+      PER["<b>Persistence</b><br/>5 实体统一存储抽象"]
+      MDL["<b>Models</b><br/>声明式配置到可调用实例的工厂"]
+      UTL["<b>Utils</b><br/>无业务依赖的纯基础设施"]
+    end
+
+    L4 --> L3
+    L3 --> L2
+    L2 --> L1
+    L1 --> L0
+
+    style L4 fill:#0a0e1a,stroke:#ec4899,stroke-width:2px,color:#c4d4f7
+    style L3 fill:#0a0e1a,stroke:#3b82f6,stroke-width:2px,color:#c4d4f7
+    style L2 fill:#0a0e1a,stroke:#f59e0b,stroke-width:2px,color:#c4d4f7
+    style L1 fill:#0a0e1a,stroke:#00e5a0,stroke-width:2px,color:#c4d4f7
+    style L0 fill:#0a0e1a,stroke:#6366f1,stroke-width:2px,color:#c4d4f7
+    style GW fill:#161d35,stroke:#ec489960,stroke-width:1px,color:#c4d4f7
+    style CH fill:#161d35,stroke:#ec489960,stroke-width:1px,color:#c4d4f7
+    style FE fill:#161d35,stroke:#ec489960,stroke-width:1px,color:#c4d4f7
+    style RT fill:#161d35,stroke:#3b82f660,stroke-width:1px,color:#c4d4f7
+    style TR fill:#161d35,stroke:#3b82f660,stroke-width:1px,color:#c4d4f7
+    style MCP fill:#161d35,stroke:#3b82f660,stroke-width:1px,color:#c4d4f7
+    style COMM fill:#161d35,stroke:#3b82f660,stroke-width:1px,color:#c4d4f7
+    style SB fill:#161d35,stroke:#f59e0b60,stroke-width:1px,color:#c4d4f7
+    style UP fill:#161d35,stroke:#f59e0b60,stroke-width:1px,color:#c4d4f7
+    style GR fill:#161d35,stroke:#f59e0b60,stroke-width:1px,color:#c4d4f7
+    style AG fill:#161d35,stroke:#00e5a060,stroke-width:1px,color:#c4d4f7
+    style TOOL fill:#161d35,stroke:#00e5a060,stroke-width:1px,color:#c4d4f7
+    style SK fill:#161d35,stroke:#00e5a060,stroke-width:1px,color:#c4d4f7
+    style SA fill:#161d35,stroke:#00e5a060,stroke-width:1px,color:#c4d4f7
+    style MEM fill:#161d35,stroke:#00e5a060,stroke-width:1px,color:#c4d4f7
+    style CFG fill:#161d35,stroke:#6366f160,stroke-width:1px,color:#c4d4f7
+    style REF fill:#161d35,stroke:#6366f160,stroke-width:1px,color:#c4d4f7
+    style PER fill:#161d35,stroke:#6366f160,stroke-width:1px,color:#c4d4f7
+    style MDL fill:#161d35,stroke:#6366f160,stroke-width:1px,color:#c4d4f7
+    style UTL fill:#161d35,stroke:#6366f160,stroke-width:1px,color:#c4d4f7
+      </div>
+    </div>
+    <div class="mt-8 animate-bounce">
+      <a href="#layers" class="text-frost/30 hover:text-layer0 transition-colors">
+        <svg class="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="gradient-line max-w-5xl mx-auto"></div>
+
+<!-- Layer Sections -->
+<section id="layers" class="relative max-w-7xl mx-auto px-6 pt-24 pb-8">
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-layer0/10 text-layer0 border border-layer0/20">ARCHITECTURE</span>
+    </div>
+    <h2 class="font-display text-4xl md:text-5xl font-bold text-white mb-3">5 Layer Architecture</h2>
+    <p class="text-frost/50 text-lg mb-16 max-w-2xl">从基础到接口，依赖方向严格单向：上层依赖下层，下层不感知上层。</p>
+  </div>
+</section>
+
+<!-- L0 Foundation -->
+<section class="relative max-w-7xl mx-auto px-6 py-12">
+  <span class="section-num" style="color:rgba(99,102,241,.08)">L0</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-layer0/10 text-layer0 border border-layer0/20">LAYER 0</span>
+    </div>
+    <h3 class="font-display text-2xl md:text-3xl font-bold text-white mb-2">Foundation Layer</h3>
+    <p class="text-frost/40 mb-8">统一声明层 · 反射解析器 · 存储抽象 · 模型工厂 · 纯工具函数</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4" id="cards-L0"></div>
+  </div>
+</section>
+
+<!-- L1 Agent Core -->
+<section class="relative max-w-7xl mx-auto px-6 py-12">
+  <span class="section-num" style="color:rgba(0,229,160,.08)">L1</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-layer1/10 text-layer1 border border-layer1/20">LAYER 1</span>
+    </div>
+    <h3 class="font-display text-2xl md:text-3xl font-bold text-white mb-2">Agent Core</h3>
+    <p class="text-frost/40 mb-8">中间件链编排 · 工具管线 · 知识包 · 任务委派 · 用户画像</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4" id="cards-L1"></div>
+  </div>
+</section>
+
+<!-- L2 Security -->
+<section class="relative max-w-7xl mx-auto px-6 py-12">
+  <span class="section-num" style="color:rgba(245,158,11,.08)">L2</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-layer2/10 text-layer2 border border-layer2/20">LAYER 2</span>
+    </div>
+    <h3 class="font-display text-2xl md:text-3xl font-bold text-white mb-2">Security Layer</h3>
+    <p class="text-frost/40 mb-8">隔离环境 · 文件安全 · 工具授权</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="cards-L2"></div>
+  </div>
+</section>
+
+<!-- L3 Integration -->
+<section class="relative max-w-7xl mx-auto px-6 py-12">
+  <span class="section-num" style="color:rgba(59,130,246,.08)">L3</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-layer3/10 text-layer3 border border-layer3/20">LAYER 3</span>
+    </div>
+    <h3 class="font-display text-2xl md:text-3xl font-bold text-white mb-2">Integration Layer</h3>
+    <p class="text-frost/40 mb-8">运行时执行 · 可观测性 · 外部工具 · 扩展工具集</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" id="cards-L3"></div>
+  </div>
+</section>
+
+<!-- L4 Interface -->
+<section class="relative max-w-7xl mx-auto px-6 py-12">
+  <span class="section-num" style="color:rgba(236,72,153,.08)">L4</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-layer4/10 text-layer4 border border-layer4/20">LAYER 4</span>
+    </div>
+    <h3 class="font-display text-2xl md:text-3xl font-bold text-white mb-2">Interface Layer</h3>
+    <p class="text-frost/40 mb-8">统一入口 · IM 通道 · Web 前端</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="cards-L4"></div>
+  </div>
+</section>
+
+<div class="gradient-line max-w-5xl mx-auto"></div>
+
+<!-- Detail / Sequence -->
+<section id="detail" class="relative max-w-7xl mx-auto px-6 py-24">
+  <span class="section-num" style="color:rgba(99,102,241,.06)">DI</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-frost/10 text-frost border border-frost/20">SEQUENCE</span>
+    </div>
+    <h2 class="font-display text-4xl md:text-5xl font-bold text-white mb-3">Data Flow</h2>
+    <p class="text-frost/50 text-lg mb-12 max-w-2xl">一次用户请求从接口层到基础层的完整调用链路</p>
+
+    <div class="glow-border rounded-2xl p-8 bg-deep/40 backdrop-blur" style="border-color:rgba(168,192,255,.15)">
+      <div class="mermaid">
+sequenceDiagram
+    participant U as User
+    participant GW as Gateway (L4)
+    participant RT as Runtime (L3)
+    participant GR as Guardrails (L2)
+    participant AG as Agent (L1)
+    participant MW as Middleware Chain
+    participant MDL as Models (L0)
+    participant TOOL as Tools (L1)
+    participant SB as Sandbox (L2)
+    participant CFG as Config (L0)
+
+    U->>GW: POST /api/threads/{id}/runs/stream
+    GW->>GW: CORS → CSRF → JWT Auth
+    GW->>RT: create_run(thread_id, input)
+    RT->>CFG: get_app_config()
+    CFG-->>RT: AppConfig (cached)
+    RT->>AG: make_lead_agent(config)
+    AG->>CFG: load tool_groups, features
+    AG->>MDL: create_chat_model(model_name)
+    MDL->>MDL: resolve_variable() via Reflection
+    MDL-->>AG: BaseChatModel instance
+    AG->>TOOL: get_available_tools()
+    TOOL-->>AG: [sandbox, builtins, mcp, ...]
+    RT->>AG: agent.invoke(state)
+
+    rect rgb(30,39,72,0.3)
+        Note over AG,SB: Middleware Chain Processing
+        AG->>MW: ThreadData → Sandbox → Guardrail → ...
+        MW->>GR: Pre-tool authorization
+        GR-->>MW: Allow / Deny
+        MW->>MDL: LLM chat invocation
+        MDL-->>MW: Response + tool_calls
+        MW->>SB: Execute tool in sandbox
+        SB-->>MW: Tool result
+    end
+
+    AG-->>RT: Final state + events
+    RT->>RT: StreamBridge → SSE
+    RT-->>GW: StreamingResponse
+    GW-->>U: text/event-stream
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="gradient-line max-w-5xl mx-auto"></div>
+
+<!-- D3 Dependency Graph -->
+<section id="graph" class="relative max-w-7xl mx-auto px-6 py-24">
+  <span class="section-num" style="color:rgba(59,130,246,.06)">GR</span>
+  <div class="relative z-10">
+    <div class="flex items-center gap-4 mb-2">
+      <span class="file-tag bg-layer3/10 text-layer3 border border-layer3/20">INTERACTIVE</span>
+    </div>
+    <h2 class="font-display text-4xl md:text-5xl font-bold text-white mb-3">Module Graph</h2>
+    <p class="text-frost/50 text-lg mb-12 max-w-2xl">模块间依赖关系 — 颜色对应层级，拖拽节点，滚轮缩放</p>
+
+    <div class="glow-border rounded-2xl bg-deep/40 backdrop-blur overflow-hidden" style="border-color:rgba(59,130,246,.15)">
+      <div id="d3-graph" class="d3-container w-full" style="height:650px;position:relative"></div>
+      <!-- Click detail panel -->
+      <div id="d3-detail" class="border-t border-steel/50 p-6 hidden" style="background:linear-gradient(180deg,rgba(15,20,36,.9),rgba(10,14,26,.95))">
+        <div class="flex items-start gap-4">
+          <div id="d3-detail-icon" class="text-3xl mt-1"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-3 mb-1">
+              <span id="d3-detail-name" class="font-display font-bold text-white text-lg"></span>
+              <span id="d3-detail-cn" class="font-mono text-sm"></span>
+              <span id="d3-detail-layer" class="file-tag text-xs"></span>
+            </div>
+            <div id="d3-detail-path" class="font-mono text-xs text-frost/40 mb-2"></div>
+            <p id="d3-detail-essence" class="text-sm font-semibold mb-2"></p>
+            <p id="d3-detail-desc" class="text-sm text-frost/60 leading-relaxed mb-3"></p>
+            <div id="d3-detail-keywords" class="flex flex-wrap gap-1 mb-3"></div>
+            <div id="d3-detail-files" class="space-y-1"></div>
+          </div>
+          <button id="d3-detail-close" class="text-frost/30 hover:text-frost transition-colors text-xl leading-none mt-1">&times;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="border-t border-steel/30 py-12 text-center">
+  <p class="text-frost/30 text-sm font-mono">DeerFlow Module Essence Documentation</p>
+  <p class="text-frost/20 text-xs mt-2">Based on docs/core/agent-essence.md</p>
+</footer>
+
+<div id="tooltip" class="tooltip"></div>
+
+<script>
+// ── Module Data ──────────────────────────────────────────────────────
+const modules = [
+  { id:'config', name:'Config', cn:'配置', layer:'L0', color:'#6366f1', path:'deerflow/config/',
+    icon:'⚙️', essence:'统一声明层',
+    desc:'从两个文件（config.yaml 静态配置 + extensions_config.json 动态配置）加载、校验、解析环境变量，通过 ContextVar 覆盖栈和 mtime 缓存实现协程安全的配置热更新，为所有子系统提供配置基座。',
+    files:['app_config.py — 根配置模型','database_config.py — 数据库配置'],
+    keywords:['热更新','ContextVar','mtime 缓存','YAML + JSON'] },
+  { id:'reflection', name:'Reflection', cn:'反射', layer:'L0', color:'#6366f1', path:'deerflow/reflection/',
+    icon:'🔍', essence:'字符串路径到 Python 对象的动态解析器',
+    desc:'通过 resolve_variable() / resolve_class() 把 config.yaml 中的 "module.path:ClassName" 字符串动态导入并验证类型，是配置驱动架构的基础，让模型工厂、工具加载、沙箱 Provider 等所有可插拔组件都无需硬编码。',
+    files:['resolve.py — resolve_variable / resolve_class'],
+    keywords:['动态导入','类型验证','配置驱动'] },
+  { id:'persistence', name:'Persistence', cn:'持久化', layer:'L0', color:'#6366f1', path:'deerflow/persistence/',
+    icon:'💾', essence:'应用数据的统一存储抽象',
+    desc:'用 SQLAlchemy 异步 ORM 管理 Run、RunEvent、ThreadMeta、Feedback、User 五大实体，支持 memory/SQLite/PostgreSQL 三后端切换，通过 json_compat 编译扩展抹平跨方言 JSON 查询差异，与 LangGraph Checkpointer 完全独立。',
+    files:['run/model.py — Run 实体','thread_meta/model.py — ThreadMeta','user/model.py — User 实体'],
+    keywords:['SQLAlchemy','5 实体','3 后端','json_compat'] },
+  { id:'models', name:'Models', cn:'模型系统', layer:'L0', color:'#6366f1', path:'deerflow/models/',
+    icon:'🧠', essence:'声明式配置到可调用实例的反射工厂',
+    desc:'通过 use 字段动态加载 Provider 类，把 config.yaml 里的声明式配置转化为统一的 BaseChatModel 实例，让上层 Agent 无需关心不同 LLM Provider 在认证、流式、thinking 上的差异。',
+    files:['factory.py — create_chat_model()','claude_provider.py — Claude 实现'],
+    keywords:['Provider 抽象','thinking/vision','多 LLM'] },
+  { id:'utils', name:'Utils', cn:'工具函数', layer:'L0', color:'#6366f1', path:'deerflow/utils/',
+    icon:'🔧', essence:'无业务依赖的纯基础设施层',
+    desc:'提供文档转 Markdown（PDF 双转换器策略）、线程安全端口分配、网页内容提取（HTML → Article → Markdown）、ISO 8601 时间戳标准化四个独立工具模块，各模块无交叉依赖。',
+    files:['file_conversion.py — 文档转换','network.py — 网络','readability.py — 内容提取'],
+    keywords:['纯函数','零依赖','4 独立模块'] },
+
+  { id:'agent', name:'Agent', cn:'Agent', layer:'L1', color:'#00e5a0', path:'deerflow/agents/',
+    icon:'🤖', essence:'中间件链驱动的 LLM 调用编排器',
+    desc:'把模型、工具、技能、子代理五种能力通过固定槽位的中间件管道串联起来，在 LangGraph 图中完成"接收请求 → 注入上下文 → 调用 LLM → 执行工具 → 返回结果"的循环。',
+    files:['lead_agent/agent.py — Agent 工厂','thread_state.py — 状态 schema'],
+    keywords:['18 中间件','LangGraph 图','5 能力槽位'] },
+  { id:'tools', name:'Tools', cn:'工具系统', layer:'L1', color:'#00e5a0', path:'deerflow/tools/',
+    icon:'🧰', essence:'按优先级装配的工具管线',
+    desc:'按"配置工具 > 内置工具 > MCP 工具 > ACP 工具"的顺序收集、过滤、去重，最终生成 Agent 可调用的 BaseTool 列表，支持按组过滤和延迟加载（tool_search）。',
+    files:['get_available_tools.py — 工具装配','builtins/ — 内置工具集'],
+    keywords:['4 源装配','去重过滤','延迟加载'] },
+  { id:'skills', name:'Skills', cn:'技能', layer:'L1', color:'#00e5a0', path:'deerflow/skills/',
+    icon:'📘', essence:'按需加载知识包机制',
+    desc:'每个技能是一个 SKILL.md + 辅助文件，仅名称和描述注入 system prompt，Agent 在需要时才通过 read_file 读取完整内容，支持内置/自定义/Agent 自创三种来源和 LLM 安全扫描。',
+    files:['loader.py — 技能发现与加载','storage.py — 状态管理'],
+    keywords:['SKILL.md','3 种来源','惰性加载'] },
+  { id:'subagents', name:'Subagents', cn:'子代理', layer:'L1', color:'#00e5a0', path:'deerflow/subagents/',
+    icon:'👥', essence:'任务委派与并行执行机制',
+    desc:'通过 task() 工具将子任务提交到双线程池架构（调度池 + 持久化事件循环），最多 3 个子代理并行执行，SSE 事件实时推送进度，Token 用量回收到父代理统计。',
+    files:['executor.py — 后台执行引擎','registry.py — Agent 注册表'],
+    keywords:['双线程池','max 3 并行','SSE 进度'] },
+  { id:'memory', name:'Memory', cn:'记忆', layer:'L1', color:'#00e5a0', path:'deerflow/agents/memory/',
+    icon:'💭', essence:'跨会话的用户画像自动提取与注入系统',
+    desc:'通过"存储 → LLM 提取 → 注入 → 防抖队列"四层架构，自动从对话中提取用户偏好、知识背景、行为模式等 facts，按置信度排序截断后注入下一轮 system prompt，实现 Agent 的个性化。',
+    files:['updater.py — LLM 提取','queue.py — 防抖队列','storage.py — JSON 存储'],
+    keywords:['4 层架构','per-user 隔离','facts 置信度'] },
+
+  { id:'sandbox', name:'Sandbox', cn:'沙箱', layer:'L2', color:'#f59e0b', path:'deerflow/sandbox/',
+    icon:'📦', essence:'Agent 工具执行的隔离环境抽象层',
+    desc:'通过统一的虚拟路径接口（/mnt/user-data/）和 Provider 模式（本地文件系统 / Docker 容器），让 Agent 工具代码无需关心底层是本地还是容器，配合路径验证、输出屏蔽、命令审计构成多层安全防线。',
+    files:['sandbox.py — 抽象接口 + Provider','tools.py — bash/ls/read/write'],
+    keywords:['虚拟路径','Provider 模式','2 实现'] },
+  { id:'uploads', name:'Uploads', cn:'上传', layer:'L2', color:'#f59e0b', path:'deerflow/uploads/',
+    icon:'📤', essence:'文件上传的纯安全逻辑层',
+    desc:'负责文件名规范化、路径遍历防护、符号链接攻击防御（POSIX O_NOFOLLOW / Windows 双重 lstat）、文件名冲突处理，与 FastAPI 解耦以同时服务 Gateway API 和嵌入式 DeerFlowClient。',
+    files:['handler.py — 文件处理与转换'],
+    keywords:['路径遍历防护','符号链接防御','跨平台'] },
+  { id:'guardrails', name:'Guardrails', cn:'护栏', layer:'L2', color:'#f59e0b', path:'deerflow/guardrails/',
+    icon:'🛡️', essence:'工具调用的前置策略授权层',
+    desc:'在每次工具执行前插入"安检口"，由可插拔的 Provider（内置 Allowlist / OAP 护照 / 自定义）评估 allow/deny 决策，是沙箱进程隔离的语义级补充，构成纵深防御的第二道防线。',
+    files:['provider.py — Provider 接口','middleware.py — 授权中间件'],
+    keywords:['Allowlist','OAP','纵深防御'] },
+
+  { id:'runtime', name:'Runtime', cn:'运行时', layer:'L3', color:'#3b82f6', path:'deerflow/runtime/',
+    icon:'⚡', essence:'Agent 图的后台执行与事件推送系统',
+    desc:'RunManager 维护内存注册表追踪运行状态，StreamBridge 通过有界缓冲区连接后台 Agent 执行与前端 SSE，RunJournal 通过 LangChain 回调无侵入地记录 LLM 调用和工具执行的完整事件流。',
+    files:['runs/manager.py — RunManager','stream_bridge/ — SSE 桥接'],
+    keywords:['RunManager','StreamBridge','RunJournal'] },
+  { id:'tracing', name:'Tracing', cn:'追踪', layer:'L3', color:'#3b82f6', path:'deerflow/tracing/',
+    icon:'📡', essence:'Agent 运行的可观测性桥梁',
+    desc:'通过统一的 build_tracing_callbacks() 入口，将 LangSmith 和 Langfuse 两个追踪平台的回调按需创建并注入 Agent 运行时，延迟导入确保未启用时零开销。',
+    files:['factory.py — 回调工厂','metadata.py — Langfuse 元数据'],
+    keywords:['LangSmith','Langfuse','延迟导入'] },
+  { id:'mcp', name:'MCP', cn:'MCP', layer:'L3', color:'#3b82f6', path:'deerflow/mcp/',
+    icon:'🔌', essence:'外部工具的缓存加载层',
+    desc:'通过 mtime 比对实现零开销的配置热更新检测，将 MCP 服务器的工具发现结果全局缓存，避免每次 Agent 调用都重新启动子进程或建立网络连接。',
+    files:['client.py — MCP 客户端','cache.py — mtime 缓存'],
+    keywords:['mtime 缓存','stdio/SSE/HTTP','OAuth'] },
+  { id:'community', name:'Community', cn:'社区工具', layer:'L3', color:'#3b82f6', path:'deerflow/community/',
+    icon:'🌐', essence:'可选的扩展工具集',
+    desc:'提供搜索引擎（Tavily/DuckDuckGo/Serper/Exa）、网页抓取（Jina AI/Firecrawl）、Docker 沙箱（AioSandbox）等扩展能力，所有工具均为可选依赖，通过 config.yaml 按需加载，未安装时优雅降级。',
+    files:['tavily/ — 搜索','jina_ai/ — 网页抓取','firecrawl/ — 爬虫'],
+    keywords:['可选依赖','优雅降级','5+ 工具'] },
+
+  { id:'gateway', name:'Gateway', cn:'Gateway', layer:'L4', color:'#ec4899', path:'app/gateway/',
+    icon:'🚪', essence:'DeerFlow 的统一入口',
+    desc:'基于 FastAPI 构建，同时承担 REST API 网关和嵌入式 LangGraph 运行时双重职责，通过 Nginx 反向代理对外暴露，请求经过 CORS → CSRF → JWT 认证 → 权限检查的完整安全链。',
+    files:['app.py — FastAPI 工厂','routers/ — 16 API 路由'],
+    keywords:['FastAPI','16 Routers','4 级安全链'] },
+  { id:'channels', name:'Channels', cn:'IM 通道', layer:'L4', color:'#ec4899', path:'app/channels/',
+    icon:'💬', essence:'多平台 IM 接入层',
+    desc:'通过 MessageBus 发布/订阅模式解耦频道与调度器，支持飞书、钉钉、企微、Slack、Discord、Telegram 等平台，所有连接采用 WebSocket 或长轮询的出站方式，无需暴露公网端口。',
+    files:['manager.py — 消息调度','service.py — 生命周期'],
+    keywords:['MessageBus','6+ 平台','出站连接'] },
+  { id:'frontend', name:'Frontend', cn:'前端', layer:'L4', color:'#ec4899', path:'frontend/',
+    icon:'🖥️', essence:'SSE 流式驱动的消息渲染系统',
+    desc:'通过 useStream hook 接收实时事件，三源合并（历史 + 流 + 乐观消息）后按消息类型分组渲染，支持流式 Markdown、推理内容折叠、子代理进度卡片，历史回放与实时流统一到同一渲染管线。',
+    files:['(Next.js 应用 — frontend/)'],
+    keywords:['useStream','三源合并','SSE'] },
+];
+
+// ── Render Module Cards ──────────────────────────────────────────────
+const layerMap = { L0:'cards-L0', L1:'cards-L1', L2:'cards-L2', L3:'cards-L3', L4:'cards-L4' };
+
+modules.forEach((m, idx) => {
+  const container = document.getElementById(layerMap[m.layer]);
+  if (!container) return;
+  const card = document.createElement('div');
+  card.className = 'mod-card glow-border rounded-xl bg-deep/60 backdrop-blur overflow-hidden';
+  card.style.borderColor = m.color + '25';
+  card.style.animationDelay = (idx * 60) + 'ms';
+  card.classList.add('anim-up');
+  card.innerHTML = `
+    <div class="p-5">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="text-2xl">${m.icon}</span>
+        <div>
+          <div class="font-semibold text-white text-sm">${m.name}</div>
+          <div class="text-xs font-mono" style="color:${m.color}">${m.cn}</div>
+        </div>
+      </div>
+      <p class="text-xs text-frost/40 font-mono mb-1">${m.path}</p>
+      <p class="text-sm text-frost/70 leading-relaxed mb-2"><span class="font-semibold" style="color:${m.color}">本质：</span>${m.essence}</p>
+      <div class="flex flex-wrap gap-1 mb-2">
+        ${m.keywords.map(k => `<span class="file-tag" style="background:${m.color}15;color:${m.color};border:1px solid ${m.color}30">${k}</span>`).join('')}
+      </div>
+      <div class="mod-essence">
+        <div class="pt-3 border-t" style="border-color:${m.color}20">
+          <p class="text-xs text-frost/60 leading-relaxed mb-3">${m.desc}</p>
+          <div class="space-y-1">
+            ${m.files.map(f => `<div class="text-xs font-mono text-frost/40">📄 ${f}</div>`).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  card.addEventListener('click', () => card.classList.toggle('expanded'));
+  container.appendChild(card);
+});
+
+// ── Mermaid Setup ────────────────────────────────────────────────────
+mermaid.initialize({
+  startOnLoad: false, theme: 'dark',
+  themeVariables: {
+    primaryColor:'#1e2748', primaryTextColor:'#c4d4f7', primaryBorderColor:'#6366f1',
+    lineColor:'#1e2748', secondaryColor:'#161d35', tertiaryColor:'#0f1424',
+    background:'#0a0e1a', mainBkg:'#1e2748', nodeBorder:'#6366f1',
+    clusterBkg:'#0f142480', clusterBorder:'#6366f140', titleColor:'#c4d4f7',
+    edgeLabelBackground:'#0f1424', fontFamily:'JetBrains Mono, monospace', fontSize:'13px'
+  },
+  flowchart:{htmlLabels:true, curve:'basis', padding:20},
+  sequence:{actorMargin:60, messageMargin:40}
+});
+
+function attachSvgZoom(svgEl) {
+  const parent = svgEl.parentElement;
+  if (!parent || parent.classList.contains('mermaid-zoom-wrap')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'mermaid-zoom-wrap';
+  wrap.style.maxHeight = '560px';
+  parent.insertBefore(wrap, svgEl);
+  wrap.appendChild(svgEl);
+  let dragging = false, sx = 0, sy = 0;
+  function resolve() {
+    const raw = svgEl.getAttribute('viewBox');
+    if (raw) { const p = raw.split(/[\s,]+/).map(Number); if (p.length===4 && p.every(n=>isFinite(n)) && p[2]>0 && p[3]>0) return {x:p[0],y:p[1],w:p[2],h:p[3]}; }
+    const aw = parseFloat(svgEl.getAttribute('width'))||0, ah = parseFloat(svgEl.getAttribute('height'))||0;
+    if (aw>0 && ah>0) return {x:0,y:0,w:aw,h:ah};
+    const r = svgEl.getBoundingClientRect();
+    if (r.width>1 && r.height>1) return {x:0,y:0,w:r.width,h:r.height};
+    try { const b = svgEl.getBBox(); if (b.width>0 && b.height>0) return {x:b.x,y:b.y,w:b.width,h:b.height}; } catch(e){}
+    return {x:0,y:0,w:800,h:400};
+  }
+  let vb = resolve();
+  function apply() {
+    const x=isFinite(vb.x)?vb.x:0, y=isFinite(vb.y)?vb.y:0, w=isFinite(vb.w)&&vb.w>0?vb.w:800, h=isFinite(vb.h)&&vb.h>0?vb.h:400;
+    svgEl.setAttribute('viewBox',`${x} ${y} ${w} ${h}`);
+  }
+  apply();
+  wrap.addEventListener('wheel', e => {
+    e.preventDefault();
+    const f = e.deltaY>0?1.1:0.9, rect = wrap.getBoundingClientRect();
+    if (rect.width<1||rect.height<1) return;
+    const mx=(e.clientX-rect.left)/rect.width, my=(e.clientY-rect.top)/rect.height;
+    const nw=Math.max(50,vb.w*f), nh=Math.max(30,vb.h*f);
+    vb.x -= mx*(nw-vb.w); vb.y -= my*(nh-vb.h); vb.w=nw; vb.h=nh; apply();
+  }, {passive:false});
+  wrap.addEventListener('mousedown', e => { dragging=true; sx=e.clientX; sy=e.clientY; e.preventDefault(); });
+  window.addEventListener('mousemove', e => { if (!dragging) return; const r=wrap.getBoundingClientRect(); if(r.width<1||r.height<1)return; vb.x-=(e.clientX-sx)*(vb.w/r.width); vb.y-=(e.clientY-sy)*(vb.h/r.height); sx=e.clientX; sy=e.clientY; apply(); });
+  window.addEventListener('mouseup', ()=>{dragging=false;});
+}
+
+async function renderMermaidIn(container) {
+  const divs = container.querySelectorAll('.mermaid:not([data-processed])');
+  for (const div of divs) {
+    try {
+      const id = 'm-' + Math.random().toString(36).slice(2,10);
+      const src = div.textContent;
+      const {svg} = await mermaid.render(id, src);
+      div.innerHTML = svg; div.setAttribute('data-processed','true');
+      const svgEl = div.querySelector('svg');
+      if (svgEl) attachSvgZoom(svgEl);
+    } catch(e) { console.warn('Mermaid:', e); div.innerHTML='<p style="color:#ff6b3d;font-size:12px">Render failed</p>'; }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // Render all standalone mermaid (outside tabs)
+  const all = document.querySelectorAll(':not(.tab-content) > .mermaid:not([data-processed])');
+  for (const div of all) {
+    try {
+      const id='ms-'+Math.random().toString(36).slice(2,10);
+      const {svg}=await mermaid.render(id, div.textContent);
+      div.innerHTML=svg; div.setAttribute('data-processed','true');
+      const svgEl=div.querySelector('svg');
+      if(svgEl) attachSvgZoom(svgEl);
+    } catch(e){ console.warn('Mermaid:',e); }
+  }
+});
+
+// ── D3 Dependency Graph ──────────────────────────────────────────────
+(function() {
+  // Build full node data with desc from modules array
+  const modMap = {};
+  modules.forEach(m => { modMap[m.id] = m; });
+
+  const nodes = modules.map(m => ({
+    id: m.id, label: m.name, group: m.layer, color: m.color,
+    desc: m.essence, cn: m.cn, icon: m.icon
+  }));
+
+  const links = [
+    {s:'gateway',t:'runtime'},{s:'gateway',t:'persistence'},{s:'gateway',t:'channels'},
+    {s:'channels',t:'runtime'},{s:'frontend',t:'gateway'},
+    {s:'runtime',t:'agent'},{s:'runtime',t:'tracing'},{s:'runtime',t:'persistence'},
+    {s:'agent',t:'models'},{s:'agent',t:'tools'},{s:'agent',t:'memory'},{s:'agent',t:'config'},
+    {s:'agent',t:'skills'},{s:'agent',t:'utils'},
+    {s:'tools',t:'mcp'},{s:'tools',t:'sandbox'},{s:'tools',t:'community'},{s:'tools',t:'subagents'},
+    {s:'tools',t:'config'},{s:'sandbox',t:'config'},{s:'memory',t:'models'},{s:'memory',t:'config'},
+    {s:'subagents',t:'tools'},{s:'subagents',t:'models'},
+    {s:'mcp',t:'config'},{s:'guardrails',t:'agent'},{s:'uploads',t:'gateway'},
+    {s:'models',t:'reflection'},{s:'models',t:'config'},
+    {s:'community',t:'config'},{s:'tracing',t:'config'},
+    {s:'guardrails',t:'config'},{s:'skills',t:'config'},
+  ].map(l => ({source:l.s, target:l.t}));
+
+  const container = document.getElementById('d3-graph');
+  const width = container.clientWidth, height = 650;
+  const layerColors = {L0:'#6366f1',L1:'#00e5a0',L2:'#f59e0b',L3:'#3b82f6',L4:'#ec4899'};
+  const layerNames = {L0:'Foundation',L1:'Agent Core',L2:'Security',L3:'Integration',L4:'Interface'};
+
+  // Detail panel elements
+  const panel = document.getElementById('d3-detail');
+  const panelIcon = document.getElementById('d3-detail-icon');
+  const panelName = document.getElementById('d3-detail-name');
+  const panelCn = document.getElementById('d3-detail-cn');
+  const panelLayer = document.getElementById('d3-detail-layer');
+  const panelPath = document.getElementById('d3-detail-path');
+  const panelEssence = document.getElementById('d3-detail-essence');
+  const panelDesc = document.getElementById('d3-detail-desc');
+  const panelKeywords = document.getElementById('d3-detail-keywords');
+  const panelFiles = document.getElementById('d3-detail-files');
+
+  let activeNode = null;
+
+  function showDetail(nodeId) {
+    const m = modMap[nodeId];
+    if (!m) return;
+    activeNode = nodeId;
+    panelIcon.textContent = m.icon;
+    panelName.textContent = m.name;
+    panelCn.textContent = m.cn;
+    panelCn.style.color = m.color;
+    panelLayer.textContent = m.layer + ' ' + layerNames[m.layer];
+    panelLayer.style.background = m.color + '20';
+    panelLayer.style.color = m.color;
+    panelLayer.style.border = '1px solid ' + m.color + '40';
+    panelPath.textContent = m.path;
+    panelEssence.textContent = '本质：' + m.essence;
+    panelEssence.style.color = m.color;
+    panelDesc.textContent = m.desc;
+    panelKeywords.innerHTML = m.keywords.map(k =>
+      `<span class="file-tag" style="background:${m.color}15;color:${m.color};border:1px solid ${m.color}30">${k}</span>`
+    ).join('');
+    panelFiles.innerHTML = m.files.map(f =>
+      `<div class="text-xs font-mono text-frost/40">📄 ${f}</div>`
+    ).join('');
+    panel.classList.remove('hidden');
+  }
+
+  document.getElementById('d3-detail-close').addEventListener('click', () => {
+    panel.classList.add('hidden');
+    activeNode = null;
+  });
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d=>d.id).distance(d=>layerColors[d.source.group]===layerColors[d.target.group]?50:90))
+    .force('charge', d3.forceManyBody().strength(-280))
+    .force('center', d3.forceCenter(width/2, height/2))
+    .force('collision', d3.forceCollide().radius(35));
+
+  const svg = d3.select('#d3-graph').append('svg').attr('width',width).attr('height',height);
+  const g = svg.append('g');
+  svg.call(d3.zoom().scaleExtent([.3,3]).on('zoom',e=>g.attr('transform',e.transform)));
+
+  // Arrows per layer color
+  Object.entries(layerColors).forEach(([k,v]) => {
+    svg.append('defs').append('marker').attr('id','arrow-'+k)
+      .attr('viewBox','0 -5 10 10').attr('refX',20).attr('refY',0)
+      .attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
+      .append('path').attr('d','M0,-5L10,0L0,5').attr('fill',v+'60');
+  });
+
+  const link = g.append('g').selectAll('line').data(links).enter().append('line')
+    .attr('stroke', d => {
+      const c = nodes.find(n=>n.id===(typeof d.source==='object'?d.source.id:d.source));
+      return c ? c.color+'30' : '#1e2748';
+    })
+    .attr('stroke-width', 1.2)
+    .attr('marker-end', d => {
+      const c = nodes.find(n=>n.id===(typeof d.target==='object'?d.target.id:d.target));
+      return `url(#arrow-${c?c.group:'L0'})`;
+    });
+
+  const node = g.append('g').selectAll('g').data(nodes).enter().append('g')
+    .call(d3.drag().on('start',(e,d)=>{if(!e.active)sim.alphaTarget(.3).restart();d.fx=d.x;d.fy=d.y;})
+      .on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y;})
+      .on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;}));
+
+  const r = 14;
+  // Background circle (for click target)
+  node.append('circle').attr('r', r + 6).attr('fill', 'transparent').style('cursor','pointer');
+
+  // Visible circle
+  const circles = node.append('circle').attr('r',r)
+    .attr('fill',d=>d.color+'25').attr('stroke',d=>d.color).attr('stroke-width',2)
+    .style('cursor','pointer')
+    .on('mouseover',function(e,d){
+      d3.select(this).transition().duration(200).attr('r',r+4);
+      const tip = document.getElementById('tooltip');
+      tip.innerHTML=`<div class="font-mono text-xs mb-1" style="color:${d.color}">${d.icon} ${d.label} (${d.cn})</div><div class="text-xs text-frost/70">${d.desc}</div>`;
+      tip.classList.add('show');
+      const rect=container.getBoundingClientRect();
+      tip.style.left=(e.clientX-rect.left+15)+'px';
+      tip.style.top=(e.clientY-rect.top-10)+'px';
+    })
+    .on('mouseout',function(){
+      d3.select(this).transition().duration(200).attr('r', activeNode===d3.select(this.parentNode).datum().id ? r+2 : r);
+      document.getElementById('tooltip').classList.remove('show');
+    })
+    .on('click', function(e, d) {
+      e.stopPropagation();
+      // Highlight active node
+      circles.transition().duration(200)
+        .attr('r', dd => dd.id === d.id ? r+2 : r)
+        .attr('stroke-width', dd => dd.id === d.id ? 3 : 2)
+        .attr('fill', dd => dd.id === d.id ? dd.color+'40' : dd.color+'25');
+      // Highlight connected links
+      const connected = new Set();
+      links.forEach(l => {
+        const sid = typeof l.source === 'object' ? l.source.id : l.source;
+        const tid = typeof l.target === 'object' ? l.target.id : l.target;
+        if (sid === d.id) connected.add(tid);
+        if (tid === d.id) connected.add(sid);
+      });
+      link.transition().duration(200)
+        .attr('stroke', ll => {
+          const sid = typeof ll.source === 'object' ? ll.source.id : ll.source;
+          const tid = typeof ll.target === 'object' ? ll.target.id : ll.target;
+          return (sid === d.id || tid === d.id) ? d.color+'80' : '#1e274840';
+        })
+        .attr('stroke-width', ll => {
+          const sid = typeof ll.source === 'object' ? ll.source.id : ll.source;
+          const tid = typeof ll.target === 'object' ? ll.target.id : ll.target;
+          return (sid === d.id || tid === d.id) ? 2.5 : 1;
+        });
+      showDetail(d.id);
+    });
+
+  // Click on background to deselect
+  svg.on('click', function() {
+    circles.transition().duration(200).attr('r', r).attr('stroke-width', 2).attr('fill', d => d.color+'25');
+    link.transition().duration(200)
+      .attr('stroke', d => { const c=nodes.find(n=>n.id===(typeof d.source==='object'?d.source.id:d.source)); return c?c.color+'30':'#1e2748'; })
+      .attr('stroke-width', 1.2);
+    panel.classList.add('hidden');
+    activeNode = null;
+  });
+
+  node.append('text').text(d=>d.icon).attr('text-anchor','middle').attr('dy','.35em').attr('font-size','14px').style('pointer-events','none');
+  node.append('text').text(d=>d.label).attr('dy',r+14).attr('text-anchor','middle').attr('fill','#a8c0ff').attr('font-size','10px').attr('font-family','JetBrains Mono,monospace').style('pointer-events','none');
+
+  sim.on('tick',()=>{
+    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    node.attr('transform',d=>`translate(${d.x},${d.y})`);
+  });
+})();
+
+// ── Particle Background ──────────────────────────────────────────────
+(function(){
+  const c=document.getElementById('particles'),ctx=c.getContext('2d');
+  let ps=[];const N=35;
+  function resize(){c.width=innerWidth;c.height=innerHeight}
+  resize();addEventListener('resize',resize);
+  for(let i=0;i<N;i++) ps.push({x:Math.random()*c.width,y:Math.random()*c.height,vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,s:Math.random()*1.5+.5,a:Math.random()*.12+.03});
+  (function draw(){
+    ctx.clearRect(0,0,c.width,c.height);
+    ps.forEach(p=>{p.x+=p.vx;p.y+=p.vy;if(p.x<0||p.x>c.width)p.vx*=-1;if(p.y<0||p.y>c.height)p.vy*=-1;ctx.beginPath();ctx.arc(p.x,p.y,p.s,0,Math.PI*2);ctx.fillStyle=`rgba(99,102,241,${p.a})`;ctx.fill()});
+    for(let i=0;i<ps.length;i++)for(let j=i+1;j<ps.length;j++){const d=Math.hypot(ps[i].x-ps[j].x,ps[i].y-ps[j].y);if(d<140){ctx.beginPath();ctx.moveTo(ps[i].x,ps[i].y);ctx.lineTo(ps[j].x,ps[j].y);ctx.strokeStyle=`rgba(99,102,241,${.025*(1-d/140)})`;ctx.lineWidth=.5;ctx.stroke()}}
+    requestAnimationFrame(draw);
+  })();
+})();
+</script>
+</body>
+</html>
