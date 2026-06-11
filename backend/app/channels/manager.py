@@ -1,50 +1,4 @@
-"""ChannelManager — 消费入站消息并将其分发到 DeerFlow Agent（通过 Gateway API）。
-
-**定位**
-
-ChannelManager 是频道系统的核心调度器。它在 MessageBus 和 DeerFlow
-Agent 之间充当中介，负责：
-
-1. **消息分发**: 从 MessageBus 入站队列消费消息
-2. **线程管理**: 通过 ChannelStore 维护 IM 会话 ↔ DeerFlow 线程映射
-3. **Agent 调用**: 通过 langgraph-sdk 调用 Gateway 的 LangGraph 兼容 API
-4. **响应处理**: 提取 Agent 响应文本、文件产出（artifacts）、附件路径
-5. **流式支持**: 对支持流式的频道（飞书、企业微信、钉钉 AI Card）使用 runs.stream
-6. **文件处理**: 入站文件下载到沙箱 uploads 目录；出站文件解析为附件
-
-**调用模式**
-
-=============  ================================================  =================
-模式             API                                              支持的频道
-=============  ================================================  =================
-非流式 (wait)   ``client.runs.wait()`` → 等 Agent 完成后返回     Discord, Slack,
-                                                                 Telegram, WeChat
-流式 (stream)   ``client.runs.stream()`` → 实时推送文本增量       飞书, 企业微信,
-                                                                 钉钉(AI Card)
-=============  ================================================  =================
-
-**并发控制**
-
-使用 ``asyncio.Semaphore`` 限制同时处理的消息数（默认 max_concurrency=5），
-避免 Agent 线程池过载。每个消息处理在独立的 ``asyncio.Task`` 中运行。
-
-**线程忙碌检测**
-
-使用 ``multitask_strategy="reject"`` 拒绝并发请求。当检测到
-``ConflictError``（LangGraph 的并发冲突）时，返回友好提示而非报错。
-
-**会话层配置**
-
-支持多层级配置合并（优先级从低到高）：
-
-1. 全局默认值 (DEFAULT_RUN_CONFIG / DEFAULT_RUN_CONTEXT)
-2. default_session (config.yaml 的 channels.session)
-3. channel_session (各频道的 session 配置)
-4. user_session (频道 session 下 users.<user_id> 的个性化配置)
-
-每个层级可覆盖：assistant_id、recursion_limit、thinking_enabled、
-is_plan_mode、subagent_enabled 等参数。
-"""
+"""ChannelManager — consumes inbound messages and dispatches them to the DeerFlow agent via Gateway."""
 
 from __future__ import annotations
 
@@ -54,6 +8,7 @@ import mimetypes
 import re
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -72,8 +27,13 @@ from app.channels.message_bus import (
 from app.channels.store import ChannelStore
 from app.gateway.csrf_middleware import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, generate_csrf_token
 from app.gateway.internal_auth import create_internal_auth_headers
+from deerflow.config.agents_config import load_agent_config
 from deerflow.config.paths import make_safe_user_id
 from deerflow.runtime.user_context import get_effective_user_id
+from deerflow.skills.slash import parse_slash_skill_reference
+from deerflow.skills.storage import get_or_new_skill_storage
+from deerflow.skills.storage.skill_storage import SkillStorage
+from deerflow.utils.messages import ORIGINAL_USER_CONTENT_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +61,7 @@ CHANNEL_CAPABILITIES = {
     "wecom": {"supports_streaming": True},
 }
 
-InboundFileReader = Callable[[dict[str, Any],
-                              httpx.AsyncClient], Awaitable[bytes | None]]
+InboundFileReader = Callable[[dict[str, Any], httpx.AsyncClient], Awaitable[bytes | None]]
 
 _METADATA_DROP_KEYS = frozenset({"raw_message", "ref_msg"})
 
@@ -134,8 +93,7 @@ async def _read_wecom_inbound_file(file_info: dict[str, Any], client: httpx.Asyn
     if data is None:
         return None
 
-    aeskey = file_info.get("aeskey") if isinstance(
-        file_info.get("aeskey"), str) else None
+    aeskey = file_info.get("aeskey") if isinstance(file_info.get("aeskey"), str) else None
     if not aeskey:
         return data
 
@@ -154,8 +112,7 @@ async def _read_wechat_inbound_file(file_info: dict[str, Any], client: httpx.Asy
         try:
             return await asyncio.to_thread(Path(raw_path).read_bytes)
         except OSError:
-            logger.exception(
-                "[Manager] failed to read WeChat inbound file from local path: %s", raw_path)
+            logger.exception("[Manager] failed to read WeChat inbound file from local path: %s", raw_path)
             return None
 
     full_url = file_info.get("full_url")
@@ -171,6 +128,16 @@ register_inbound_file_reader("wechat", _read_wechat_inbound_file)
 
 class InvalidChannelSessionConfigError(ValueError):
     """Raised when IM channel session overrides contain invalid agent config."""
+
+
+class SlashSkillCommandResolutionError(RuntimeError):
+    """Raised when IM slash-skill command resolution cannot complete safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class _SlashSkillCommandResolution:
+    route_to_chat: bool = False
+    failure_message: str | None = None
 
 
 def _is_thread_busy_error(exc: BaseException | None) -> bool:
@@ -197,11 +164,9 @@ def _normalize_custom_agent_name(raw_value: str) -> str:
     """Normalize legacy channel assistant IDs into valid custom agent names."""
     normalized = raw_value.strip().lower().replace("_", "-")
     if not normalized:
-        raise InvalidChannelSessionConfigError(
-            "Channel session assistant_id is empty. Use 'lead_agent' or a valid custom agent name.")
+        raise InvalidChannelSessionConfigError("Channel session assistant_id is empty. Use 'lead_agent' or a valid custom agent name.")
     if not CUSTOM_AGENT_NAME_PATTERN.fullmatch(normalized):
-        raise InvalidChannelSessionConfigError(
-            f"Invalid channel session assistant_id {raw_value!r}. Use 'lead_agent' or a custom agent name containing only letters, digits, and hyphens.")
+        raise InvalidChannelSessionConfigError(f"Invalid channel session assistant_id {raw_value!r}. Use 'lead_agent' or a custom agent name containing only letters, digits, and hyphens.")
     return normalized
 
 
@@ -380,8 +345,7 @@ def _accumulate_stream_text(
 
     if isinstance(payload, str):
         message_id = current_message_id or "__default__"
-        buffers[message_id] = _merge_stream_text(
-            buffers.get(message_id, ""), payload)
+        buffers[message_id] = _merge_stream_text(buffers.get(message_id, ""), payload)
         return buffers[message_id], message_id
 
     if not isinstance(payload, Mapping):
@@ -397,8 +361,7 @@ def _accumulate_stream_text(
     if not text:
         return None, current_message_id
 
-    message_id = _extract_stream_message_id(
-        payload, metadata) or current_message_id or "__default__"
+    message_id = _extract_stream_message_id(payload, metadata) or current_message_id or "__default__"
     buffers[message_id] = _merge_stream_text(buffers.get(message_id, ""), text)
     return buffers[message_id], message_id
 
@@ -434,8 +397,7 @@ def _extract_artifacts(result: dict | list) -> list[str]:
                     args = tc.get("args", {})
                     paths = args.get("filepaths", [])
                     if isinstance(paths, list):
-                        artifacts.extend(
-                            p for p in paths if isinstance(p, str))
+                        artifacts.extend(p for p in paths if isinstance(p, str))
     return artifacts
 
 
@@ -464,6 +426,46 @@ def _format_artifact_text(artifacts: list[str]) -> str:
 _OUTPUTS_VIRTUAL_PREFIX = "/mnt/user-data/outputs/"
 
 
+def _unknown_command_reply(command: str | None = None) -> str:
+    available = " | ".join(sorted(KNOWN_CHANNEL_COMMANDS))
+    if command:
+        return f"Unknown command: /{command}. Available commands: {available}"
+    return f"Unknown command. Available commands: {available}"
+
+
+def _human_input_message(content: str, *, original_content: str | None = None) -> dict[str, Any]:
+    message: dict[str, Any] = {"role": "human", "content": content}
+    if original_content is not None and original_content != content:
+        message["additional_kwargs"] = {ORIGINAL_USER_CONTENT_KEY: original_content}
+    return message
+
+
+def _resolve_slash_skill_command(
+    text: str,
+    available_skills: set[str] | None = None,
+    storage: SkillStorage | Callable[[], SkillStorage] | None = None,
+) -> _SlashSkillCommandResolution | None:
+    reference = parse_slash_skill_reference(text)
+    if reference is None:
+        return None
+    try:
+        resolved_storage = storage() if callable(storage) else storage or get_or_new_skill_storage()
+        skills = resolved_storage.load_skills(enabled_only=False)
+
+        skill = next((candidate for candidate in skills if candidate.name == reference.name), None)
+        if skill is None:
+            return None
+        if not skill.enabled:
+            return _SlashSkillCommandResolution(failure_message=f"Skill `/{reference.name}` is installed but disabled. Enable it before using slash activation.")
+        if available_skills is not None and reference.name not in available_skills:
+            return _SlashSkillCommandResolution(failure_message=f"Skill `/{reference.name}` is not available for this agent.")
+
+        return _SlashSkillCommandResolution(route_to_chat=True)
+    except Exception as exc:
+        logger.exception("[Manager] failed to resolve slash skill command")
+        raise SlashSkillCommandResolutionError("Failed to resolve slash skill command. Please check the skill configuration.") from exc
+
+
 def _resolve_attachments(thread_id: str, artifacts: list[str]) -> list[ResolvedAttachment]:
     """Resolve virtual artifact paths to host filesystem paths with metadata.
 
@@ -479,28 +481,23 @@ def _resolve_attachments(thread_id: str, artifacts: list[str]) -> list[ResolvedA
     attachments: list[ResolvedAttachment] = []
     paths = get_paths()
     user_id = get_effective_user_id()
-    outputs_dir = paths.sandbox_outputs_dir(
-        thread_id, user_id=user_id).resolve()
+    outputs_dir = paths.sandbox_outputs_dir(thread_id, user_id=user_id).resolve()
     for virtual_path in artifacts:
         # Security: only allow files from the agent outputs directory
         if not virtual_path.startswith(_OUTPUTS_VIRTUAL_PREFIX):
-            logger.warning(
-                "[Manager] rejected non-outputs artifact path: %s", virtual_path)
+            logger.warning("[Manager] rejected non-outputs artifact path: %s", virtual_path)
             continue
         try:
-            actual = paths.resolve_virtual_path(
-                thread_id, virtual_path, user_id=user_id)
+            actual = paths.resolve_virtual_path(thread_id, virtual_path, user_id=user_id)
             # Verify the resolved path is actually under the outputs directory
             # (guards against path-traversal even after prefix check)
             try:
                 actual.resolve().relative_to(outputs_dir)
             except ValueError:
-                logger.warning(
-                    "[Manager] artifact path escapes outputs dir: %s -> %s", virtual_path, actual)
+                logger.warning("[Manager] artifact path escapes outputs dir: %s -> %s", virtual_path, actual)
                 continue
             if not actual.is_file():
-                logger.warning(
-                    "[Manager] artifact not found on disk: %s -> %s", virtual_path, actual)
+                logger.warning("[Manager] artifact not found on disk: %s -> %s", virtual_path, actual)
                 continue
             mime, _ = mimetypes.guess_type(str(actual))
             mime = mime or "application/octet-stream"
@@ -515,8 +512,7 @@ def _resolve_attachments(thread_id: str, artifacts: list[str]) -> list[ResolvedA
                 )
             )
         except (ValueError, OSError) as exc:
-            logger.warning(
-                "[Manager] failed to resolve artifact %s: %s", virtual_path, exc)
+            logger.warning("[Manager] failed to resolve artifact %s: %s", virtual_path, exc)
     return attachments
 
 
@@ -536,16 +532,13 @@ def _prepare_artifact_delivery(
 
     if unresolved:
         artifact_text = _format_artifact_text(unresolved)
-        response_text = (response_text + "\n\n" +
-                         artifact_text) if response_text else artifact_text
+        response_text = (response_text + "\n\n" + artifact_text) if response_text else artifact_text
 
     # Always include resolved attachment filenames as a text fallback so files
     # remain discoverable even when the upload is skipped or fails.
     if attachments:
-        resolved_text = _format_artifact_text(
-            [attachment.virtual_path for attachment in attachments])
-        response_text = (response_text + "\n\n" +
-                         resolved_text) if response_text else resolved_text
+        resolved_text = _format_artifact_text([attachment.virtual_path for attachment in attachments])
+        response_text = (response_text + "\n\n" + resolved_text) if response_text else resolved_text
 
     return response_text, attachments
 
@@ -563,20 +556,17 @@ async def _ingest_inbound_files(thread_id: str, msg: InboundMessage) -> list[dic
     )
 
     uploads_dir = ensure_uploads_dir(thread_id)
-    seen_names = {entry.name for entry in uploads_dir.iterdir()
-                  if entry.is_file()}
+    seen_names = {entry.name for entry in uploads_dir.iterdir() if entry.is_file()}
 
     created: list[dict[str, Any]] = []
-    file_reader = INBOUND_FILE_READERS.get(
-        msg.channel_name, _read_http_inbound_file)
+    file_reader = INBOUND_FILE_READERS.get(msg.channel_name, _read_http_inbound_file)
     async with httpx.AsyncClient(timeout=httpx.Timeout(20.0)) as client:
         for idx, f in enumerate(msg.files):
             if not isinstance(f, dict):
                 continue
 
             ftype = f.get("type") if isinstance(f.get("type"), str) else "file"
-            filename = f.get("filename") if isinstance(
-                f.get("filename"), str) else ""
+            filename = f.get("filename") if isinstance(f.get("filename"), str) else ""
 
             try:
                 data = await file_reader(f, client)
@@ -603,8 +593,7 @@ async def _ingest_inbound_files(thread_id: str, msg: InboundMessage) -> list[dic
                 filename = f"{msg.thread_ts or 'msg'}_{idx}{ext}"
 
             try:
-                safe_name = claim_unique_filename(
-                    normalize_filename(filename), seen_names)
+                safe_name = claim_unique_filename(normalize_filename(filename), seen_names)
             except ValueError:
                 logger.warning(
                     "[Manager] skipping inbound file with unsafe filename: channel=%s, file=%r",
@@ -615,15 +604,12 @@ async def _ingest_inbound_files(thread_id: str, msg: InboundMessage) -> list[dic
 
             dest = uploads_dir / safe_name
             try:
-                dest = write_upload_file_no_symlink(
-                    uploads_dir, safe_name, data)
+                dest = write_upload_file_no_symlink(uploads_dir, safe_name, data)
             except UnsafeUploadPathError:
-                logger.warning(
-                    "[Manager] skipping inbound file with unsafe destination: %s", safe_name)
+                logger.warning("[Manager] skipping inbound file with unsafe destination: %s", safe_name)
                 continue
             except Exception:
-                logger.exception(
-                    "[Manager] failed to write inbound file: %s", dest)
+                logger.exception("[Manager] failed to write inbound file: %s", dest)
                 continue
 
             created.append(
@@ -660,8 +646,7 @@ def _format_uploaded_files_block(files: list[dict[str, Any]]) -> str:
             lines.append(f"  Path: {path}")
             lines.append("")
     lines.append("Use `read_file` for text-based files and documents.")
-    lines.append(
-        "Use `view_image` for image files (jpg, jpeg, png, webp) so the model can inspect the image content.")
+    lines.append("Use `view_image` for image files (jpg, jpeg, png, webp) so the model can inspect the image content.")
     lines.append("</uploaded_files>")
     return "\n".join(lines)
 
@@ -695,6 +680,7 @@ class ChannelManager:
         self._default_session = _as_dict(default_session)
         self._channel_sessions = dict(channel_sessions or {})
         self._client = None  # lazy init — langgraph_sdk async client
+        self._skill_storage: SkillStorage | None = None
         self._csrf_token = generate_csrf_token()
         self._semaphore: asyncio.Semaphore | None = None
         self._running = False
@@ -720,8 +706,7 @@ class ChannelManager:
     def _resolve_run_params(self, msg: InboundMessage, thread_id: str) -> tuple[str, dict[str, Any], dict[str, Any]]:
         channel_layer, user_layer = self._resolve_session_layer(msg)
 
-        assistant_id = user_layer.get("assistant_id") or channel_layer.get(
-            "assistant_id") or self._default_session.get("assistant_id") or self._assistant_id
+        assistant_id = user_layer.get("assistant_id") or channel_layer.get("assistant_id") or self._default_session.get("assistant_id") or self._assistant_id
         if not isinstance(assistant_id, str) or not assistant_id.strip():
             assistant_id = self._assistant_id
 
@@ -763,11 +748,25 @@ class ChannelManager:
         # Keep backward compatibility for channel configs that set
         # assistant_id: <custom-agent-name> by routing through lead_agent.
         if assistant_id != DEFAULT_ASSISTANT_ID:
-            run_context.setdefault(
-                "agent_name", _normalize_custom_agent_name(assistant_id))
+            run_context.setdefault("agent_name", _normalize_custom_agent_name(assistant_id))
             assistant_id = DEFAULT_ASSISTANT_ID
 
         return assistant_id, run_config, run_context
+
+    def _resolve_available_skill_names(self, msg: InboundMessage) -> set[str] | None:
+        thread_id = self.store.get_thread_id(msg.channel_name, msg.chat_id, topic_id=msg.topic_id) or ""
+        _, _, run_context = self._resolve_run_params(msg, thread_id)
+        if run_context.get("is_bootstrap"):
+            return {"bootstrap"}
+
+        agent_name = run_context.get("agent_name")
+        if not isinstance(agent_name, str) or not agent_name.strip():
+            return None
+
+        agent_config = load_agent_config(_normalize_custom_agent_name(agent_name))
+        if agent_config and agent_config.skills is not None:
+            return set(agent_config.skills)
+        return None
 
     # -- LangGraph SDK client (lazy) ----------------------------------------
 
@@ -786,6 +785,11 @@ class ChannelManager:
             )
         return self._client
 
+    def _get_skill_storage(self) -> SkillStorage:
+        if self._skill_storage is None:
+            self._skill_storage = get_or_new_skill_storage()
+        return self._skill_storage
+
     # -- lifecycle ---------------------------------------------------------
 
     async def start(self) -> None:
@@ -795,8 +799,7 @@ class ChannelManager:
         self._running = True
         self._semaphore = asyncio.Semaphore(self._max_concurrency)
         self._task = asyncio.create_task(self._dispatch_loop())
-        logger.info("ChannelManager started (max_concurrency=%d)",
-                    self._max_concurrency)
+        logger.info("ChannelManager started (max_concurrency=%d)", self._max_concurrency)
 
     async def stop(self) -> None:
         """Stop the dispatch loop."""
@@ -813,8 +816,7 @@ class ChannelManager:
     # -- dispatch loop -----------------------------------------------------
 
     async def _dispatch_loop(self) -> None:
-        logger.info(
-            "[Manager] dispatch loop started, waiting for inbound messages")
+        logger.info("[Manager] dispatch loop started, waiting for inbound messages")
         while self._running:
             try:
                 msg = await asyncio.wait_for(self.bus.get_inbound(), timeout=1.0)
@@ -840,8 +842,7 @@ class ChannelManager:
             return
         exc = task.exception()
         if exc:
-            logger.error(
-                "[Manager] unhandled error in message task: %s", exc, exc_info=exc)
+            logger.error("[Manager] unhandled error in message task: %s", exc, exc_info=exc)
 
     async def _handle_message(self, msg: InboundMessage) -> None:
         async with self._semaphore:
@@ -853,6 +854,14 @@ class ChannelManager:
             except InvalidChannelSessionConfigError as exc:
                 logger.warning(
                     "Invalid channel session config for %s (chat=%s): %s",
+                    msg.channel_name,
+                    msg.chat_id,
+                    exc,
+                )
+                await self._send_error(msg, str(exc))
+            except SlashSkillCommandResolutionError as exc:
+                logger.warning(
+                    "Slash skill command resolution failed for %s (chat=%s): %s",
                     msg.channel_name,
                     msg.chat_id,
                     exc,
@@ -879,8 +888,7 @@ class ChannelManager:
             topic_id=msg.topic_id,
             user_id=msg.user_id,
         )
-        logger.info("[Manager] new thread created through Gateway: thread_id=%s for chat_id=%s topic_id=%s",
-                    thread_id, msg.chat_id, msg.topic_id)
+        logger.info("[Manager] new thread created through Gateway: thread_id=%s for chat_id=%s topic_id=%s", thread_id, msg.chat_id, msg.topic_id)
         return thread_id
 
     async def _handle_chat(self, msg: InboundMessage, extra_context: dict[str, Any] | None = None) -> None:
@@ -889,18 +897,15 @@ class ChannelManager:
         # Look up existing DeerFlow thread.
         # topic_id may be None (e.g. Telegram private chats) — the store
         # handles this by using the "channel:chat_id" key without a topic suffix.
-        thread_id = self.store.get_thread_id(
-            msg.channel_name, msg.chat_id, topic_id=msg.topic_id)
+        thread_id = self.store.get_thread_id(msg.channel_name, msg.chat_id, topic_id=msg.topic_id)
         if thread_id:
-            logger.info(
-                "[Manager] reusing thread: thread_id=%s for topic_id=%s", thread_id, msg.topic_id)
+            logger.info("[Manager] reusing thread: thread_id=%s for topic_id=%s", thread_id, msg.topic_id)
 
         # No existing thread found — create a new one
         if thread_id is None:
             thread_id = await self._create_thread(client, msg)
 
-        assistant_id, run_config, run_context = self._resolve_run_params(
-            msg, thread_id)
+        assistant_id, run_config, run_context = self._resolve_run_params(msg, thread_id)
 
         # If the inbound message contains file attachments, let the channel
         # materialize (download) them and update msg.text to include sandbox file paths.
@@ -910,18 +915,17 @@ class ChannelManager:
             from .service import get_channel_service
 
             service = get_channel_service()
-            channel = service.get_channel(
-                msg.channel_name) if service else None
-            logger.info(
-                "[Manager] preparing receive file context for %d attachments", len(msg.files))
+            channel = service.get_channel(msg.channel_name) if service else None
+            logger.info("[Manager] preparing receive file context for %d attachments", len(msg.files))
             msg = await channel.receive_file(msg, thread_id) if channel else msg
         if extra_context:
             run_context.update(extra_context)
 
+        original_text = msg.text
         uploaded = await _ingest_inbound_files(thread_id, msg)
         if uploaded:
-            msg.text = f"{_format_uploaded_files_block(uploaded)}\n\n{msg.text}".strip(
-            )
+            msg.text = f"{_format_uploaded_files_block(uploaded)}\n\n{msg.text}".strip()
+        human_message = _human_input_message(msg.text, original_content=original_text)
 
         if self._channel_supports_streaming(msg.channel_name):
             await self._handle_streaming_chat(
@@ -931,24 +935,23 @@ class ChannelManager:
                 assistant_id,
                 run_config,
                 run_context,
+                human_message,
             )
             return
 
-        logger.info(
-            "[Manager] invoking runs.wait(thread_id=%s, text=%r)", thread_id, msg.text[:100])
+        logger.info("[Manager] invoking runs.wait(thread_id=%s, text=%r)", thread_id, msg.text[:100])
         try:
             result = await client.runs.wait(
                 thread_id,
                 assistant_id,
-                input={"messages": [{"role": "human", "content": msg.text}]},
+                input={"messages": [human_message]},
                 config=run_config,
                 context=run_context,
                 multitask_strategy="reject",
             )
         except Exception as exc:
             if _is_thread_busy_error(exc):
-                logger.warning(
-                    "[Manager] thread busy (concurrent run rejected): thread_id=%s", thread_id)
+                logger.warning("[Manager] thread busy (concurrent run rejected): thread_id=%s", thread_id)
                 await self._send_error(msg, THREAD_BUSY_MESSAGE)
                 return
             else:
@@ -965,13 +968,11 @@ class ChannelManager:
             len(artifacts),
         )
 
-        response_text, attachments = _prepare_artifact_delivery(
-            thread_id, response_text, artifacts)
+        response_text, attachments = _prepare_artifact_delivery(thread_id, response_text, artifacts)
 
         if not response_text:
             if attachments:
-                response_text = _format_artifact_text(
-                    [a.virtual_path for a in attachments])
+                response_text = _format_artifact_text([a.virtual_path for a in attachments])
             else:
                 response_text = "(No response from agent)"
 
@@ -985,8 +986,7 @@ class ChannelManager:
             thread_ts=msg.thread_ts,
             metadata=_response_metadata(msg.metadata, pending_clarification=pending_clarification),
         )
-        logger.info("[Manager] publishing outbound message to bus: channel=%s, chat_id=%s",
-                    msg.channel_name, msg.chat_id)
+        logger.info("[Manager] publishing outbound message to bus: channel=%s, chat_id=%s", msg.channel_name, msg.chat_id)
         await self.bus.publish_outbound(outbound)
 
     async def _handle_streaming_chat(
@@ -997,9 +997,9 @@ class ChannelManager:
         assistant_id: str,
         run_config: dict[str, Any],
         run_context: dict[str, Any],
+        human_message: dict[str, Any],
     ) -> None:
-        logger.info(
-            "[Manager] invoking runs.stream(thread_id=%s, text=%r)", thread_id, msg.text[:100])
+        logger.info("[Manager] invoking runs.stream(thread_id=%s, text=%r)", thread_id, msg.text[:100])
 
         last_values: dict[str, Any] | list | None = None
         streamed_buffers: dict[str, str] = {}
@@ -1013,7 +1013,7 @@ class ChannelManager:
             async for chunk in client.runs.stream(
                 thread_id,
                 assistant_id,
-                input={"messages": [{"role": "human", "content": msg.text}]},
+                input={"messages": [human_message]},
                 config=run_config,
                 context=run_context,
                 stream_mode=["messages-tuple", "values"],
@@ -1023,8 +1023,7 @@ class ChannelManager:
                 data = getattr(chunk, "data", None)
 
                 if event == "messages-tuple":
-                    accumulated_text, current_message_id = _accumulate_stream_text(
-                        streamed_buffers, current_message_id, data)
+                    accumulated_text, current_message_id = _accumulate_stream_text(streamed_buffers, current_message_id, data)
                     if accumulated_text:
                         latest_text = accumulated_text
                 elif event == "values" and isinstance(data, (dict, list)):
@@ -1056,24 +1055,19 @@ class ChannelManager:
         except Exception as exc:
             stream_error = exc
             if _is_thread_busy_error(exc):
-                logger.warning(
-                    "[Manager] thread busy (concurrent run rejected): thread_id=%s", thread_id)
+                logger.warning("[Manager] thread busy (concurrent run rejected): thread_id=%s", thread_id)
             else:
-                logger.exception(
-                    "[Manager] streaming error: thread_id=%s", thread_id)
+                logger.exception("[Manager] streaming error: thread_id=%s", thread_id)
         finally:
-            result = last_values if last_values is not None else {
-                "messages": [{"type": "ai", "content": latest_text}]}
+            result = last_values if last_values is not None else {"messages": [{"type": "ai", "content": latest_text}]}
             response_text = _extract_response_text(result)
             pending_clarification = _has_current_turn_clarification(result)
             artifacts = _extract_artifacts(result)
-            response_text, attachments = _prepare_artifact_delivery(
-                thread_id, response_text, artifacts)
+            response_text, attachments = _prepare_artifact_delivery(thread_id, response_text, artifacts)
 
             if not response_text:
                 if attachments:
-                    response_text = _format_artifact_text(
-                        [attachment.virtual_path for attachment in attachments])
+                    response_text = _format_artifact_text([attachment.virtual_path for attachment in attachments])
                 elif stream_error:
                     if _is_thread_busy_error(stream_error):
                         response_text = THREAD_BUSY_MESSAGE
@@ -1106,20 +1100,28 @@ class ChannelManager:
     # -- command handling --------------------------------------------------
 
     async def _handle_command(self, msg: InboundMessage) -> None:
-        text = msg.text.strip()
+        raw_text = msg.text
+        text = raw_text.strip()
         parts = text.split(maxsplit=1)
-        command = parts[0].lower().lstrip("/")
+        reply: str | None = None
+        if not parts:
+            command = None
+            reply = _unknown_command_reply()
+        else:
+            command = parts[0].lower().removeprefix("/")
 
-        if command == "bootstrap":
+        if reply is None and not raw_text.startswith("/"):
+            reply = _unknown_command_reply(command)
+
+        if reply is None and command == "bootstrap":
             from dataclasses import replace as _dc_replace
 
             chat_text = parts[1] if len(parts) > 1 else "Initialize workspace"
-            chat_msg = _dc_replace(msg, text=chat_text,
-                                   msg_type=InboundMessageType.CHAT)
+            chat_msg = _dc_replace(msg, text=chat_text, msg_type=InboundMessageType.CHAT)
             await self._handle_chat(chat_msg, extra_context={"is_bootstrap": True})
             return
 
-        if command == "new":
+        if reply is None and command == "new":
             # Create a new thread through Gateway
             client = self._get_client()
             thread = await client.threads.create()
@@ -1132,15 +1134,14 @@ class ChannelManager:
                 user_id=msg.user_id,
             )
             reply = "New conversation started."
-        elif command == "status":
-            thread_id = self.store.get_thread_id(
-                msg.channel_name, msg.chat_id, topic_id=msg.topic_id)
+        elif reply is None and command == "status":
+            thread_id = self.store.get_thread_id(msg.channel_name, msg.chat_id, topic_id=msg.topic_id)
             reply = f"Active thread: {thread_id}" if thread_id else "No active conversation."
-        elif command == "models":
+        elif reply is None and command == "models":
             reply = await self._fetch_gateway("/api/models", "models")
-        elif command == "memory":
+        elif reply is None and command == "memory":
             reply = await self._fetch_gateway("/api/memory", "memory")
-        elif command == "help":
+        elif reply is None and command == "help":
             reply = (
                 "Available commands:\n"
                 "/bootstrap — Start a bootstrap session (enables agent setup)\n"
@@ -1148,17 +1149,32 @@ class ChannelManager:
                 "/status — Show current thread info\n"
                 "/models — List available models\n"
                 "/memory — Show memory status\n"
+                "/<skill-name> <task> — Activate an enabled skill for one turn\n"
                 "/help — Show this help"
             )
-        else:
-            available = " | ".join(sorted(KNOWN_CHANNEL_COMMANDS))
-            reply = f"Unknown command: /{command}. Available commands: {available}"
+        elif reply is None:
+            slash_resolution = await asyncio.to_thread(
+                lambda: _resolve_slash_skill_command(
+                    raw_text,
+                    self._resolve_available_skill_names(msg),
+                    self._get_skill_storage,
+                )
+            )
+            if slash_resolution and slash_resolution.failure_message:
+                reply = slash_resolution.failure_message
+            elif slash_resolution and slash_resolution.route_to_chat:
+                from dataclasses import replace as _dc_replace
+
+                chat_msg = _dc_replace(msg, msg_type=InboundMessageType.CHAT)
+                await self._handle_chat(chat_msg)
+                return
+            else:
+                reply = _unknown_command_reply(command)
 
         outbound = OutboundMessage(
             channel_name=msg.channel_name,
             chat_id=msg.chat_id,
-            thread_id=self.store.get_thread_id(
-                msg.channel_name, msg.chat_id) or "",
+            thread_id=self.store.get_thread_id(msg.channel_name, msg.chat_id, topic_id=msg.topic_id) or "",
             text=reply,
             thread_ts=msg.thread_ts,
             metadata=_slim_metadata(msg.metadata),
@@ -1196,8 +1212,7 @@ class ChannelManager:
         outbound = OutboundMessage(
             channel_name=msg.channel_name,
             chat_id=msg.chat_id,
-            thread_id=self.store.get_thread_id(
-                msg.channel_name, msg.chat_id) or "",
+            thread_id=self.store.get_thread_id(msg.channel_name, msg.chat_id, topic_id=msg.topic_id) or "",
             text=error_text,
             thread_ts=msg.thread_ts,
             metadata=_slim_metadata(msg.metadata),

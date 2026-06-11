@@ -91,12 +91,14 @@ def resolve_agent_dir(name: str, *, user_id: str | None = None) -> Path:
     paths = get_paths()
     effective_user = user_id or get_effective_user_id()
     user_path = paths.user_agent_dir(effective_user, name)
-    if user_path.exists():
+    # Require config.yaml to confirm this is a genuine agent directory,
+    # not a leftover from memory/storage writes (see #3390).
+    if user_path.exists() and (user_path / "config.yaml").exists():
         return user_path
 
     # 回退到旧布局（兼容未迁移的安装）
     legacy_path = paths.agent_dir(name)
-    if legacy_path.exists():
+    if legacy_path.exists() and (legacy_path / "config.yaml").exists():
         return legacy_path
 
     # 都不存在时返回新布局路径（用于创建新代理）

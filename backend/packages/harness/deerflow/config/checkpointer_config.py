@@ -68,6 +68,20 @@ def set_checkpointer_config(config: CheckpointerConfig | None) -> None:
     _checkpointer_config = config
 
 
+def ensure_config_loaded() -> None:
+    """Lazily load app config when checkpointer config has not been initialized."""
+    from deerflow.config.app_config import _app_config, get_app_config
+
+    config = get_checkpointer_config()
+    if config is not None or _app_config is not None:
+        return
+
+    try:
+        get_app_config()
+    except FileNotFoundError:
+        pass
+
+
 def load_checkpointer_config_from_dict(config_dict: dict | None) -> None:
     """从字典加载 Checkpointer 配置（由 AppConfig 初始化时调用）。
 

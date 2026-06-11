@@ -1,50 +1,4 @@
-"""企业微信 IM 频道实现。
-
-**连接方式**
-
-使用企业微信 AI Bot WebSocket 连接。SDK: ``wecom-aibot-python-sdk``。
-
-**消息流式输出**
-
-企业微信通过 ``reply_stream`` 实现流式回复。收到用户消息后：
-
-1. 立即发送 "Working on it..." 流式消息（finished=False）
-2. Agent 流式输出时，通过同一 stream_id 持续更新消息内容
-3. Agent 完成后，发送最终消息（finished=True）
-
-**消息类型**
-
-支持多种 WebSocket 事件类型：
-
-- ``message.text``: 纯文本消息
-- ``message.mixed``: 混合消息（文本 + 图片/文件）
-- ``message.image``: 图片消息（含 URL 和 AES 密钥）
-- ``message.file``: 文件消息（含 URL 和 AES 密钥）
-
-**文件下载**
-
-使用 ``InboundFileReader`` 注册机制：
-
-- 通过 HTTP 下载加密文件内容
-- 使用 ``aibot.crypto_utils.decrypt_file`` 解密
-- 解密密钥从消息的 ``aeskey`` 字段获取
-
-**文件上传**
-
-通过 WebSocket 命令协议分块上传：
-
-1. ``aibot_upload_media_init``: 初始化上传（含 MD5、总大小、总块数）
-2. ``aibot_upload_media_chunk``: 逐块上传（每块 512KB，最多 100 块）
-3. ``aibot_upload_media_finish``: 完成上传，获取 media_id
-
-- 图片限制: 2MB
-- 文件限制: 20MB
-
-**路由规则**
-
-- topic_id = user_id（每个用户保持同一线程）
-- chat_id = user_id
-"""
+from __future__ import annotations
 
 import asyncio
 import base64
@@ -54,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
 from app.channels.base import Channel
+from app.channels.commands import is_known_channel_command
 from app.channels.message_bus import (
     InboundMessageType,
     MessageBus,
@@ -92,11 +47,9 @@ class WeComChannel(Channel):
         ws_manager = getattr(self._ws_client, "_ws_manager", None)
         send_reply = getattr(ws_manager, "send_reply", None)
         if not callable(send_reply):
-            raise RuntimeError(
-                "Installed wecom-aibot-python-sdk does not expose the WebSocket media upload API expected by DeerFlow. Use wecom-aibot-python-sdk==0.1.6 or update the adapter.")
+            raise RuntimeError("Installed wecom-aibot-python-sdk does not expose the WebSocket media upload API expected by DeerFlow. Use wecom-aibot-python-sdk==0.1.6 or update the adapter.")
 
-        send_reply_async = cast(
-            Callable[[str, dict[str, Any], str], Awaitable[dict[str, Any]]], send_reply)
+        send_reply_async = cast(Callable[[str, dict[str, Any], str], Awaitable[dict[str, Any]]], send_reply)
         return await send_reply_async(req_id, body, cmd)
 
     async def start(self) -> None:
@@ -108,10 +61,8 @@ class WeComChannel(Channel):
         working_message = self.config.get("working_message")
 
         self._bot_id = bot_id if isinstance(bot_id, str) and bot_id else None
-        self._bot_secret = bot_secret if isinstance(
-            bot_secret, str) and bot_secret else None
-        self._working_message = working_message if isinstance(
-            working_message, str) and working_message else "Working on it..."
+        self._bot_secret = bot_secret if isinstance(bot_secret, str) and bot_secret else None
+        self._working_message = working_message if isinstance(working_message, str) and working_message else "Working on it..."
 
         if not self._bot_id or not self._bot_secret:
             logger.error("WeCom channel requires bot_id and bot_secret")
@@ -120,12 +71,10 @@ class WeComChannel(Channel):
         try:
             from aibot import WSClient, WSClientOptions
         except ImportError:
-            logger.error(
-                "wecom-aibot-python-sdk is not installed. Install it with: uv add wecom-aibot-python-sdk")
+            logger.error("wecom-aibot-python-sdk is not installed. Install it with: uv add wecom-aibot-python-sdk")
             return
         else:
-            self._ws_client = WSClient(WSClientOptions(
-                bot_id=self._bot_id, secret=self._bot_secret, logger=logger))
+            self._ws_client = WSClient(WSClientOptions(bot_id=self._bot_id, secret=self._bot_secret, logger=logger))
             self._ws_client.on("message.text", self._on_ws_text)
             self._ws_client.on("message.mixed", self._on_ws_mixed)
             self._ws_client.on("message.image", self._on_ws_image)
@@ -159,8 +108,7 @@ class WeComChannel(Channel):
         if self._ws_client:
             await self._send_ws(msg, _max_retries=_max_retries)
             return
-        logger.warning(
-            "[WeCom] send called but WebSocket client is not available")
+        logger.warning("[WeCom] send called but WebSocket client is not available")
 
     async def _on_outbound(self, msg: OutboundMessage) -> None:
         if msg.channel_name != self.name:
@@ -169,8 +117,7 @@ class WeComChannel(Channel):
         try:
             await self.send(msg)
         except Exception:
-            logger.exception(
-                "Failed to send outbound message on channel %s", self.name)
+            logger.exception("Failed to send outbound message on channel %s", self.name)
             if msg.is_final:
                 self._clear_ws_context(msg.thread_ts)
             return
@@ -179,11 +126,9 @@ class WeComChannel(Channel):
             try:
                 success = await self.send_file(msg, attachment)
                 if not success:
-                    logger.warning("[%s] file upload skipped for %s",
-                                   self.name, attachment.filename)
+                    logger.warning("[%s] file upload skipped for %s", self.name, attachment.filename)
             except Exception:
-                logger.exception("[%s] failed to upload file %s",
-                                 self.name, attachment.filename)
+                logger.exception("[%s] failed to upload file %s", self.name, attachment.filename)
 
         if msg.is_final:
             self._clear_ws_context(msg.thread_ts)
@@ -222,19 +167,16 @@ class WeComChannel(Channel):
 
             body = {media_type: {"media_id": media_id}, "msgtype": media_type}
             await self._ws_client.reply(frame, body)
-            logger.debug("[WeCom] %s sent via ws: %s",
-                         media_type, attachment.filename)
+            logger.debug("[WeCom] %s sent via ws: %s", media_type, attachment.filename)
             return True
         except Exception:
-            logger.exception(
-                "[WeCom] failed to upload/send file via ws: %s", attachment.filename)
+            logger.exception("[WeCom] failed to upload/send file via ws: %s", attachment.filename)
             return False
 
     async def _on_ws_text(self, frame: dict[str, Any]) -> None:
         body = frame.get("body", {}) or {}
         text = ((body.get("text") or {}).get("content") or "").strip()
-        quote = body.get("quote", {}).get(
-            "text", {}).get("content", "").strip()
+        quote = body.get("quote", {}).get("text", {}).get("content", "").strip()
         if not text and not quote:
             return
         await self._publish_ws_inbound(frame, text + (f"\nQuote message: {quote}" if quote else ""))
@@ -248,8 +190,7 @@ class WeComChannel(Channel):
         for item in items:
             item_type = (item or {}).get("msgtype")
             if item_type == "text":
-                content = (((item or {}).get("text") or {}).get(
-                    "content") or "").strip()
+                content = (((item or {}).get("text") or {}).get("content") or "").strip()
                 if content:
                     parts.append(content)
             elif item_type in ("image", "file"):
@@ -330,8 +271,7 @@ class WeComChannel(Channel):
 
         user_id = (body.get("from") or {}).get("userid")
 
-        inbound_type = InboundMessageType.COMMAND if text.startswith(
-            "/") else InboundMessageType.CHAT
+        inbound_type = InboundMessageType.COMMAND if is_known_channel_command(text) else InboundMessageType.CHAT
         inbound = self._make_inbound(
             chat_id=user_id,  # keep user's conversation in memory
             user_id=user_id,
@@ -339,8 +279,7 @@ class WeComChannel(Channel):
             msg_type=inbound_type,
             thread_ts=msg_id,
             files=files or [],
-            metadata={"aibotid": body.get(
-                "aibotid"), "chattype": body.get("chattype")},
+            metadata={"aibotid": body.get("aibotid"), "chattype": body.get("chattype")},
         )
         inbound.topic_id = user_id  # keep the same thread
 
@@ -415,8 +354,7 @@ class WeComChannel(Channel):
         chunk_size = 512 * 1024
         total_chunks = (size + chunk_size - 1) // chunk_size
         if total_chunks < 1 or total_chunks > 100:
-            logger.warning(
-                "[WeCom] invalid total_chunks=%d for %s", total_chunks, filename)
+            logger.warning("[WeCom] invalid total_chunks=%d for %s", total_chunks, filename)
             return None
 
         md5_hasher = hashlib.md5()
@@ -436,8 +374,7 @@ class WeComChannel(Channel):
         init_ack = await self._send_ws_upload_command(init_req_id, init_body, "aibot_upload_media_init")
         upload_id = (init_ack.get("body") or {}).get("upload_id")
         if not upload_id:
-            logger.warning(
-                "[WeCom] upload init returned no upload_id: %s", init_ack)
+            logger.warning("[WeCom] upload init returned no upload_id: %s", init_ack)
             return None
 
         with open(path, "rb") as f:
@@ -457,7 +394,6 @@ class WeComChannel(Channel):
         finish_ack = await self._send_ws_upload_command(finish_req_id, {"upload_id": upload_id}, "aibot_upload_media_finish")
         media_id = (finish_ack.get("body") or {}).get("media_id")
         if not media_id:
-            logger.warning(
-                "[WeCom] upload finish returned no media_id: %s", finish_ack)
+            logger.warning("[WeCom] upload finish returned no media_id: %s", finish_ack)
             return None
         return media_id

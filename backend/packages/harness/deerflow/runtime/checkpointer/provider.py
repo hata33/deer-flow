@@ -1,18 +1,18 @@
-"""
-同步检查点工厂模块。
+"""Sync checkpointer factory.
 
-为 LangGraph 图编译和 CLI 工具提供**同步单例**和**同步上下文管理器**。
+Provides a **sync singleton** and a **sync context manager** for LangGraph
+graph compilation and CLI tools.
 
-支持的后端: memory, sqlite, postgres。
+Supported backends: memory, sqlite, postgres.
 
-用法::
+Usage::
 
     from deerflow.runtime.checkpointer.provider import get_checkpointer, checkpointer_context
 
-    # 单例 —— 跨调用重用，在进程退出时关闭
+    # Singleton — reused across calls, closed on process exit
     cp = get_checkpointer()
 
-    # 一次性 —— 新连接，在块退出时关闭
+    # One-shot — fresh connection, closed on block exit
     with checkpointer_context() as cp:
         graph.invoke(input, config={"configurable": {"thread_id": "1"}})
 """
@@ -21,50 +21,40 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 from collections.abc import Iterator
 
 from langgraph.types import Checkpointer
 
 from deerflow.config.app_config import get_app_config
-from deerflow.config.checkpointer_config import CheckpointerConfig
+from deerflow.config.checkpointer_config import CheckpointerConfig, ensure_config_loaded
 from deerflow.runtime.store._sqlite_utils import ensure_sqlite_parent_dir, resolve_sqlite_conn_str
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# 错误消息常量 —— 也被 aio.provider 导入
+# Error message constants — imported by aio.provider too
 # ---------------------------------------------------------------------------
 
-# SQLite 安装提示
 SQLITE_INSTALL = "langgraph-checkpoint-sqlite is required for the SQLite checkpointer. Install it with: uv add langgraph-checkpoint-sqlite"
-
-# PostgreSQL 安装提示
 POSTGRES_INSTALL = (
     "langgraph-checkpoint-postgres is required for the PostgreSQL checkpointer. Install the package extra with: pip install 'deerflow-harness[postgres]' (or use: uv sync --all-packages --extra postgres when developing locally)"
 )
-
-# PostgreSQL 连接字符串错误
 POSTGRES_CONN_REQUIRED = "checkpointer.connection_string is required for the postgres backend"
 
 # ---------------------------------------------------------------------------
-# 同步工厂
+# Sync factory
 # ---------------------------------------------------------------------------
 
 
 @contextlib.contextmanager
 def _sync_checkpointer_cm(config: CheckpointerConfig) -> Iterator[Checkpointer]:
-    """创建和拆除同步检查点的上下文管理器。
+    """Context manager that creates and tears down a sync checkpointer.
 
-    Args:
-        config: 检查点配置
-
-    Yields:
-        Checkpointer 实例
-
-    Note:
-        返回配置的 ``Checkpointer`` 实例。任何底层连接或池的资源清理
-        由此模块中的更高级别助手（如单例工厂或上下文管理器）处理；
-        此函数不返回单独的清理回调。
+    Returns a configured ``Checkpointer`` instance. Resource cleanup for any
+    underlying connections or pools is handled by higher-level helpers in
+    this module (such as the singleton factory or context manager); this
+    function does not return a separate cleanup callback.
     """
     if config.type == "memory":
         from langgraph.checkpoint.memory import InMemorySaver
@@ -106,100 +96,89 @@ def _sync_checkpointer_cm(config: CheckpointerConfig) -> Iterator[Checkpointer]:
 
 
 # ---------------------------------------------------------------------------
-# 同步单例
+# Sync singleton
 # ---------------------------------------------------------------------------
 
-# 全局检查点实例
 _checkpointer: Checkpointer | None = None
-# 保持连接活动的打开上下文管理器
-_checkpointer_ctx = None
+_checkpointer_ctx = None  # open context manager keeping the connection alive
+_checkpointer_lock = threading.Lock()
 
 
 def get_checkpointer() -> Checkpointer:
-    """返回全局同步检查点单例，在首次调用时创建。
+    """Return the global sync checkpointer singleton, creating it on first call.
 
-    Returns:
-        Checkpointer 实例（如果未配置则返回 InMemorySaver）
+    Returns an ``InMemorySaver`` when no checkpointer is configured in *config.yaml*.
 
     Raises:
-        ImportError: 如果未安装配置后端所需的包
-        ValueError: 如果需要连接字符串的后端缺少它
-
-    Note:
-        当在 *config.yaml* 中未配置检查点时返回 ``InMemorySaver``。
+        ImportError: If the required package for the configured backend is not installed.
+        ValueError: If ``connection_string`` is missing for a backend that requires it.
     """
     global _checkpointer, _checkpointer_ctx
 
     if _checkpointer is not None:
         return _checkpointer
 
-    # 在检查检查点配置之前确保加载应用配置
-    # 这防止当 config.yaml 实际上有检查点节但尚未加载时返回 InMemorySaver
-    from deerflow.config.app_config import _app_config
-    from deerflow.config.checkpointer_config import get_checkpointer_config
+    # Config loading can reset both persistence singletons. Keep it outside
+    # this provider lock to avoid cross-provider lock-order inversion.
+    ensure_config_loaded()
 
-    config = get_checkpointer_config()
+    with _checkpointer_lock:
+        if _checkpointer is not None:
+            return _checkpointer
 
-    if config is None and _app_config is None:
-        # 仅在应用配置和显式检查点配置都尚未初始化时延迟加载应用配置。
-        # 这使有意设置全局检查点配置的测试与磁盘上的任何环境 config.yaml 隔离。
-        try:
-            get_app_config()
-        except FileNotFoundError:
-            # 在没有 config.yaml 的测试环境中，这是预期的。
-            pass
+        from deerflow.config.checkpointer_config import get_checkpointer_config
+
         config = get_checkpointer_config()
-    if config is None:
-        from langgraph.checkpoint.memory import InMemorySaver
 
-        logger.info("Checkpointer: using InMemorySaver (in-process, not persistent)")
-        _checkpointer = InMemorySaver()
-        return _checkpointer
+        if config is None:
+            from langgraph.checkpoint.memory import InMemorySaver
 
-    _checkpointer_ctx = _sync_checkpointer_cm(config)
-    _checkpointer = _checkpointer_ctx.__enter__()
+            logger.info("Checkpointer: using InMemorySaver (in-process, not persistent)")
+            _checkpointer = InMemorySaver()
+            return _checkpointer
+
+        checkpointer_ctx = _sync_checkpointer_cm(config)
+        checkpointer = checkpointer_ctx.__enter__()
+        _checkpointer_ctx = checkpointer_ctx
+        _checkpointer = checkpointer
 
     return _checkpointer
 
 
 def reset_checkpointer() -> None:
-    """重置同步单例，强制在下次调用时重新创建。
+    """Reset the sync singleton, forcing recreation on the next call.
 
-    Note:
-        关闭任何打开的后端连接并清除缓存的实例。
-        在测试中或配置更改后很有用。
+    Closes any open backend connections and clears the cached instance.
+    Useful in tests or after a configuration change.
     """
     global _checkpointer, _checkpointer_ctx
-    if _checkpointer_ctx is not None:
-        try:
-            _checkpointer_ctx.__exit__(None, None, None)
-        except Exception:
-            logger.warning("Error during checkpointer cleanup", exc_info=True)
-        _checkpointer_ctx = None
-    _checkpointer = None
+    with _checkpointer_lock:
+        if _checkpointer_ctx is not None:
+            try:
+                _checkpointer_ctx.__exit__(None, None, None)
+            except Exception:
+                logger.warning("Error during checkpointer cleanup", exc_info=True)
+            _checkpointer_ctx = None
+        _checkpointer = None
 
 
 # ---------------------------------------------------------------------------
-# 同步上下文管理器
+# Sync context manager
 # ---------------------------------------------------------------------------
 
 
 @contextlib.contextmanager
 def checkpointer_context() -> Iterator[Checkpointer]:
-    """同步上下文管理器，产生检查点并在退出时清理。
+    """Sync context manager that yields a checkpointer and cleans up on exit.
 
-    与 :func:`get_checkpointer` 不同，这**不**缓存实例 ——
-    每个 ``with`` 块创建并销毁自己的连接。在需要确定性清理的
-    CLI 脚本或测试中使用它::
+    Unlike :func:`get_checkpointer`, this does **not** cache the instance —
+    each ``with`` block creates and destroys its own connection.  Use it in
+    CLI scripts or tests where you want deterministic cleanup::
 
         with checkpointer_context() as cp:
             graph.invoke(input, config={"configurable": {"thread_id": "1"}})
 
-    Yields:
-        Checkpointer 实例（如果未配置则返回 InMemorySaver）
-
-    Note:
-        当在 *config.yaml* 中未配置检查点时产生 ``InMemorySaver``。
+    Yields an ``InMemorySaver`` when no checkpointer is configured in *config.yaml*.
     """
 
     config = get_app_config()

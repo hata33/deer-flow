@@ -1,44 +1,24 @@
-"""
-记忆系统的提示词模板与注入格式化（第 1 层 + 第 3 层）
+"""Prompt templates for memory update and injection."""
 
-本模块承担记忆系统中的两个职责：
-1. 第 1 层（注入）：format_memory_for_injection() 将记忆格式化后注入 system prompt
-2. 第 3 层（提取）：MEMORY_UPDATE_PROMPT 指导 LLM 从对话中提取记忆更新
+from __future__ import annotations
 
-关键组件：
-- MEMORY_UPDATE_PROMPT：~120 行的详细提示词，指导 LLM 分析对话并返回 JSON 更新指令
-- FACT_EXTRACTION_PROMPT：从单条消息中提取事实的提示词
-- format_memory_for_injection()：按置信度排序 facts → token 预算截断 → 格式化为文本
-- format_conversation_for_update()：将对话消息格式化为文本供更新提示词使用
-
-注入策略（第 1 层）：
-- 使用 tiktoken 精确计算 token 数（cl100k_base 编码）
-- Facts 按 confidence 降序排列，低置信度在 token 不足时被裁剪
-- correction 类别特殊处理：追加 "(avoid: sourceError)" 标记
-- 默认 token 预算为 2000（max_injection_tokens 配置）
-
-依赖：
-- tiktoken（可选）：精确 token 计数，未安装时回退到字符数 ÷ 4 估算
-- memory_config.py：max_injection_tokens 等配置
-"""
-
+import logging
 import math
 import re
-from typing import Any
+import threading
+import time
+from typing import Any, cast
+
+logger = logging.getLogger(__name__)
 
 try:
     import tiktoken
 
     TIKTOKEN_AVAILABLE = True
 except ImportError:
-    # tiktoken 是可选依赖，未安装时回退到字符估算
     TIKTOKEN_AVAILABLE = False
 
-# ---- 提示词模板 ----
-
-# 第 3 层使用的更新提示词（~120 行）
-# 输入变量：{current_memory}、{conversation}、{correction_hint}
-# 输出格式：JSON，包含 user/history sections 的更新 + newFacts + factsToRemove
+# Prompt template for updating memory based on conversation
 MEMORY_UPDATE_PROMPT = """You are a memory management system. Your task is to analyze a conversation and update the user's memory profile.
 
 Current Memory State:
@@ -158,7 +138,7 @@ Important Rules:
 Return ONLY valid JSON, no explanation or markdown."""
 
 
-# 从单条消息中提取事实的提示词（轻量级，用于 API 等场景）
+# Prompt template for extracting facts from a single message
 FACT_EXTRACTION_PROMPT = """Extract factual information about the user from this message.
 
 Message:
@@ -187,48 +167,145 @@ Rules:
 Return ONLY valid JSON."""
 
 
-# ---- 工具函数 ----
+# Module-level tiktoken encoding cache.  Populated lazily on first use;
+# subsequent calls are a dict lookup (no network I/O).  Pre-warming at
+# startup via :func:`warm_tiktoken_cache` avoids blocking a request on the
+# (potentially slow) first ``get_encoding`` call.
+#
+# A *failed* load is cached as a ``(None, monotonic_timestamp)`` tuple so that
+# a network-restricted environment does not re-attempt the blocking BPE
+# download on every subsequent call.  After ``_TIKTOKEN_RETRY_COOLDOWN_S`` the
+# failure is allowed to expire so a transient network outage can self-heal back
+# to accurate tiktoken counting without a process restart.  A load already in
+# progress is cached as ``_TIKTOKEN_ENCODING_LOADING`` so concurrent callers
+# fall back immediately instead of spawning more blocking
+# ``tiktoken.get_encoding`` threads.  Use the ``memory.token_counting: char``
+# config to skip tiktoken entirely.
+_TIKTOKEN_ENCODING_MISSING = object()
+_TIKTOKEN_ENCODING_LOADING = object()
+# Cooldown before a *failed* tiktoken load is re-attempted. This is an internal
+# tuning constant rather than a user-facing config: it only affects how quickly
+# the default ``tiktoken`` mode self-heals after a transient network outage.
+# Deployments that want to avoid tiktoken's network dependency entirely should
+# set ``memory.token_counting: char`` instead of tuning this value.
+_TIKTOKEN_RETRY_COOLDOWN_S = 600.0
+_tiktoken_encoding_cache: dict[str, Any] = {}
+_tiktoken_encoding_cache_lock = threading.Lock()
 
 
-def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
-    """计算文本的 token 数量。
+def _get_tiktoken_encoding(encoding_name: str = "cl100k_base") -> tiktoken.Encoding | None:
+    """Return a cached tiktoken encoding, or ``None`` on failure / unavailability.
 
-    优先使用 tiktoken 精确计数（cl100k_base 编码，GPT-4/3.5 使用）。
-    tiktoken 未安装或出错时回退到字符数 ÷ 4 的粗略估算。
+    On the very first call for a given *encoding_name*, tiktoken may need to
+    download the BPE data from ``openaipublic.blob.core.windows.net``.  In
+    network-restricted environments (e.g. deployments behind the GFW) this
+    download can block for tens of minutes before the OS TCP timeout kicks in.
+    The caller must therefore be prepared for this to block and should run it
+    off the event loop (e.g. via ``asyncio.to_thread``).
 
-    Args:
-        text: 待计算 token 的文本
-        encoding_name: tiktoken 编码名称，默认 cl100k_base
-
-    Returns:
-        token 数量
+    A failed load is remembered (with a timestamp) so subsequent calls fall
+    back immediately to character-based estimation instead of re-triggering the
+    blocking download. The failure expires after ``_TIKTOKEN_RETRY_COOLDOWN_S``
+    so a transient outage can self-heal without a restart. A load already in
+    progress is also remembered so that a timed-out caller does not leave a
+    window where later requests start more blocking ``get_encoding`` calls.
     """
     if not TIKTOKEN_AVAILABLE:
-        # tiktoken 未安装，回退到字符估算（平均每个 token 约 4 个字符）
-        return len(text) // 4
+        return None
+
+    with _tiktoken_encoding_cache_lock:
+        cached = _tiktoken_encoding_cache.get(encoding_name, _TIKTOKEN_ENCODING_MISSING)
+        if cached is _TIKTOKEN_ENCODING_LOADING:
+            return None
+        if isinstance(cached, tuple):
+            # Cached failure: (None, failed_at). Retry only after cooldown.
+            _, failed_at = cached
+            if time.monotonic() - failed_at < _TIKTOKEN_RETRY_COOLDOWN_S:
+                return None
+            cached = _TIKTOKEN_ENCODING_MISSING
+        if cached is not _TIKTOKEN_ENCODING_MISSING:
+            return cast("tiktoken.Encoding", cached)
+        _tiktoken_encoding_cache[encoding_name] = _TIKTOKEN_ENCODING_LOADING
 
     try:
         encoding = tiktoken.get_encoding(encoding_name)
+    except Exception:
+        logger.warning("Failed to load tiktoken encoding %r; falling back to char-based estimation", encoding_name, exc_info=True)
+        with _tiktoken_encoding_cache_lock:
+            _tiktoken_encoding_cache[encoding_name] = (None, time.monotonic())
+        return None
+
+    with _tiktoken_encoding_cache_lock:
+        _tiktoken_encoding_cache[encoding_name] = encoding
+    return encoding
+
+
+def _char_based_token_estimate(text: str) -> int:
+    """Network-free token estimate that accounts for CJK density.
+
+    The plain ``len(text) // 4`` heuristic is reasonable for English/code
+    (~4 chars per token) but significantly under-estimates token counts for
+    Chinese, Japanese, and Korean text, where the ratio is closer to 1.5-2
+    characters per token. Counting CJK characters separately (~2 chars per
+    token) avoids over-filling the injection budget for CJK-heavy memory
+    content.
+    """
+    cjk = sum(
+        1
+        for ch in text
+        if "\u4e00" <= ch <= "\u9fff"  # CJK Unified Ideographs
+        or "\u3040" <= ch <= "\u30ff"  # Hiragana + Katakana
+        or "\uac00" <= ch <= "\ud7a3"  # Hangul syllables
+    )
+    return (len(text) - cjk) // 4 + cjk // 2
+
+
+def _count_tokens(text: str, encoding_name: str = "cl100k_base", *, use_tiktoken: bool = True) -> int:
+    """Count tokens in text using tiktoken.
+
+    Args:
+        text: The text to count tokens for.
+        encoding_name: The encoding to use (default: cl100k_base for GPT-4/3.5).
+        use_tiktoken: When ``False``, skip tiktoken entirely and use the
+            network-free character-based estimate. This guarantees no BPE
+            download is attempted (see ``memory.token_counting`` config).
+
+    Returns:
+        The number of tokens in the text.
+    """
+    if not use_tiktoken:
+        return _char_based_token_estimate(text)
+
+    encoding = _get_tiktoken_encoding(encoding_name)
+    if encoding is None:
+        # Fallback to CJK-aware character estimation if tiktoken is not
+        # available or the encoding failed to load.
+        return _char_based_token_estimate(text)
+
+    try:
         return len(encoding.encode(text))
     except Exception:
-        # 编码加载失败，同样回退
-        return len(text) // 4
+        # Fallback to CJK-aware character estimation on error.
+        return _char_based_token_estimate(text)
+
+
+def warm_tiktoken_cache() -> bool:
+    """Pre-warm the tiktoken encoding cache.
+
+    Call at startup (off the event loop) so the first request never blocks
+    on the BPE download.  Returns ``True`` if the encoding was loaded
+    successfully (or was already cached), ``False`` if tiktoken is
+    unavailable or the download failed.
+    """
+    return _get_tiktoken_encoding("cl100k_base") is not None
 
 
 def _coerce_confidence(value: Any, default: float = 0.0) -> float:
-    """将置信度值安全转换为 [0, 1] 范围内的浮点数。
+    """Coerce a confidence-like value to a bounded float in [0, 1].
 
-    处理以下异常情况：
-    - None / 非数字类型 → 回退到 default
-    - NaN / Inf / -Inf → 回退到 default（防止非法值主导排序）
-    - 正常数值 → 钳制到 [0, 1] 区间
-
-    Args:
-        value: 原始置信度值（可能是任意类型）
-        default: 非法值时的默认回退值（假定有限）
-
-    Returns:
-        [0, 1] 范围内的浮点数
+    Non-finite values (NaN, inf, -inf) are treated as invalid and fall back
+    to the default before clamping, preventing them from dominating ranking.
+    The ``default`` parameter is assumed to be a finite value.
     """
     try:
         confidence = float(value)
@@ -239,36 +316,25 @@ def _coerce_confidence(value: Any, default: float = 0.0) -> float:
     return max(0.0, min(1.0, confidence))
 
 
-# ---- 第 1 层：注入格式化 ----
-
-
-def format_memory_for_injection(memory_data: dict[str, Any], max_tokens: int = 2000) -> str:
-    """将记忆数据格式化为可注入 system prompt 的文本（第 1 层核心函数）。
-
-    格式化流程：
-    1. User Context → "Work: ... / Personal: ... / Current Focus: ..."
-    2. History → "Recent: ... / Earlier: ... / Background: ..."
-    3. Facts → 按 confidence 降序排列
-       - 逐条加入，每加一条用 tiktoken 实时算 token
-       - 超出 max_tokens 预算时停止
-       - correction 类别特殊格式：追加 "(avoid: sourceError)"
-
-    注入时机：Agent 构建时（make_lead_agent → _get_memory_context），
-    不是运行时。本轮更新的记忆，下一轮才能看到。
+def format_memory_for_injection(memory_data: dict[str, Any], max_tokens: int = 2000, *, use_tiktoken: bool = True) -> str:
+    """Format memory data for injection into system prompt.
 
     Args:
-        memory_data: 从 storage 加载的记忆数据字典
-        max_tokens: 最大 token 预算（默认 2000）
+        memory_data: The memory data dictionary.
+        max_tokens: Maximum tokens to use (counted via tiktoken for accuracy).
+        use_tiktoken: When ``False``, all token counting uses the network-free
+            character-based estimate instead of tiktoken (see
+            ``memory.token_counting`` config). Defaults to ``True``.
 
     Returns:
-        格式化后的记忆文本，用于注入 <memory> XML 块；无内容时返回空字符串
+        Formatted memory string for system prompt injection.
     """
     if not memory_data:
         return ""
 
     sections = []
 
-    # 格式化 User Context 部分（工作、个人、当前关注点）
+    # Format user context
     user_data = memory_data.get("user", {})
     if user_data:
         user_sections = []
@@ -288,7 +354,7 @@ def format_memory_for_injection(memory_data: dict[str, Any], max_tokens: int = 2
         if user_sections:
             sections.append("User Context:\n" + "\n".join(f"- {s}" for s in user_sections))
 
-    # 格式化 History 部分（近期、早期、长期背景）
+    # Format history
     history_data = memory_data.get("history", {})
     if history_data:
         history_sections = []
@@ -308,22 +374,22 @@ def format_memory_for_injection(memory_data: dict[str, Any], max_tokens: int = 2
         if history_sections:
             sections.append("History:\n" + "\n".join(f"- {s}" for s in history_sections))
 
-    # 格式化 Facts 部分（按置信度排序，受 token 预算限制）
+    # Format facts (sorted by confidence; include as many as token budget allows)
     facts_data = memory_data.get("facts", [])
     if isinstance(facts_data, list) and facts_data:
-        # 按 confidence 降序排列，过滤掉无效的 fact 条目
         ranked_facts = sorted(
             (f for f in facts_data if isinstance(f, dict) and isinstance(f.get("content"), str) and f.get("content").strip()),
             key=lambda fact: _coerce_confidence(fact.get("confidence"), default=0.0),
             reverse=True,
         )
 
-        # 先计算已有 sections 的 token 数，再逐条加入 facts
+        # Compute token count for existing sections once, then account
+        # incrementally for each fact line to avoid full-string re-tokenization.
         base_text = "\n\n".join(sections)
-        base_tokens = _count_tokens(base_text) if base_text else 0
-        # 预留 "Facts:\n" 标题和分隔符的 token
+        base_tokens = _count_tokens(base_text, use_tiktoken=use_tiktoken) if base_text else 0
+        # Account for the separator between existing sections and the facts section.
         facts_header = "Facts:\n"
-        separator_tokens = _count_tokens("\n\n" + facts_header) if base_text else _count_tokens(facts_header)
+        separator_tokens = _count_tokens("\n\n" + facts_header, use_tiktoken=use_tiktoken) if base_text else _count_tokens(facts_header, use_tiktoken=use_tiktoken)
         running_tokens = base_tokens + separator_tokens
 
         fact_lines: list[str] = []
@@ -337,15 +403,14 @@ def format_memory_for_injection(memory_data: dict[str, Any], max_tokens: int = 2
             category = str(fact.get("category", "context")).strip() or "context"
             confidence = _coerce_confidence(fact.get("confidence"), default=0.0)
             source_error = fact.get("sourceError")
-            # correction 类别特殊格式：显示应避免的错误
             if category == "correction" and isinstance(source_error, str) and source_error.strip():
                 line = f"- [{category} | {confidence:.2f}] {content} (avoid: {source_error.strip()})"
             else:
                 line = f"- [{category} | {confidence:.2f}] {content}"
 
-            # 增量计算 token，超预算则停止
+            # Each additional line is preceded by a newline (except the first).
             line_text = ("\n" + line) if fact_lines else line
-            line_tokens = _count_tokens(line_text)
+            line_tokens = _count_tokens(line_text, use_tiktoken=use_tiktoken)
 
             if running_tokens + line_tokens <= max_tokens:
                 fact_lines.append(line)
@@ -361,42 +426,34 @@ def format_memory_for_injection(memory_data: dict[str, Any], max_tokens: int = 2
 
     result = "\n\n".join(sections)
 
-    # 最终安全检查：如果格式化后的文本仍超过 token 限制，按比例截断
-    token_count = _count_tokens(result)
+    # Use accurate token counting with tiktoken (or the char-based estimate
+    # when use_tiktoken is False).
+    token_count = _count_tokens(result, use_tiktoken=use_tiktoken)
     if token_count > max_tokens:
-        # 根据字符/token 比率估算需要截断的字符数
+        # Truncate to fit within token limit
+        # Estimate characters to remove based on token ratio
         char_per_token = len(result) / token_count
-        target_chars = int(max_tokens * char_per_token * 0.95)  # 95% 留出安全余量
+        target_chars = int(max_tokens * char_per_token * 0.95)  # 95% to leave margin
         result = result[:target_chars] + "\n..."
 
     return result
 
 
-# ---- 第 3 层：对话格式化 ----
-
-
 def format_conversation_for_update(messages: list[Any]) -> str:
-    """将对话消息列表格式化为文本，供 MEMORY_UPDATE_PROMPT 使用。
-
-    格式化规则：
-    1. 只保留 human 和 ai 消息（过滤掉 system、tool 等类型）
-    2. human 消息中的 <uploaded_files> 标签被正则移除（上传路径是会话级的，不应持久化）
-    3. 若移除上传标签后消息为空，跳过该条消息
-    4. 超过 1000 字的消息被截断（防止过长消息消耗过多 token）
-    5. 支持多模态内容（content 为 list 类型时提取文本部分）
+    """Format conversation messages for memory update prompt.
 
     Args:
-        messages: 对话消息列表（LangChain Message 对象）
+        messages: List of conversation messages.
 
     Returns:
-        格式化后的对话文本（"User: ...\n\nAssistant: ..." 格式）
+        Formatted conversation string.
     """
     lines = []
     for msg in messages:
         role = getattr(msg, "type", "unknown")
         content = getattr(msg, "content", str(msg))
 
-        # 处理多模态内容（content 可能是 list 而非 str）
+        # Handle content that might be a list (multimodal)
         if isinstance(content, list):
             text_parts = []
             for p in content:
@@ -408,14 +465,15 @@ def format_conversation_for_update(messages: list[Any]) -> str:
                         text_parts.append(text_val)
             content = " ".join(text_parts) if text_parts else str(content)
 
-        # 移除 human 消息中的 <uploaded_files> 块
-        # 上传文件路径是会话级的，不应写入长期记忆
+        # Strip uploaded_files tags from human messages to avoid persisting
+        # ephemeral file path info into long-term memory.  Skip the turn entirely
+        # when nothing remains after stripping (upload-only message).
         if role == "human":
             content = re.sub(r"<uploaded_files>[\s\S]*?</uploaded_files>\n*", "", str(content)).strip()
             if not content:
                 continue
 
-        # 截断过长消息（> 1000 字）
+        # Truncate very long messages
         if len(str(content)) > 1000:
             content = str(content)[:1000] + "..."
 
