@@ -61,3 +61,6 @@ NNN-<short-slug>.md
 | 002 | #3481 | fix(agents): require config.yaml in resolve_agent_dir | 002-agent-dir-config-yaml.md |
 | 003 | #3514 | fix(channels): reload config on channel restart | 003-channel-restart-reload.md |
 | 004 | #3535 | fix(history): strip base64 image data from REST endpoints | 004-strip-base64-history.md |
+| 005 | #3544 (Refs) | fix(channels): close Discord file handle after upload | 005-discord-file-handle.md |
+
+> 注：005 尚未合并（Submitted, pending review）。合并后回填 PR 编号并将状态更新为 Merged。
