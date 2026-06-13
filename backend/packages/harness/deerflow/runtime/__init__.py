@@ -33,9 +33,11 @@ from .runs import ConflictError, DisconnectMode, RunContext, RunManager, RunReco
 # 序列化相关导入
 # - serialize: 通用序列化函数
 # - serialize_channel_values: 序列化通道值
+# - serialize_channel_values_for_api: 序列化通道值（API 用，剥离 base64 图片数据）
 # - serialize_lc_object: 序列化 LangChain 对象
 # - serialize_messages_tuple: 序列化消息元组
-from .serialization import serialize, serialize_channel_values, serialize_lc_object, serialize_messages_tuple
+# - strip_data_url_image_blocks: 从 hide_from_ui 消息中移除 data: scheme 的 image_url 块
+from .serialization import serialize, serialize_channel_values, serialize_channel_values_for_api, serialize_lc_object, serialize_messages_tuple, strip_data_url_image_blocks
 
 # 存储相关导入
 # - get_store: 获取当前存储实例
@@ -71,8 +73,10 @@ __all__ = [
     # serialization
     "serialize",
     "serialize_channel_values",
+    "serialize_channel_values_for_api",
     "serialize_lc_object",
     "serialize_messages_tuple",
+    "strip_data_url_image_blocks",
     # store
     "get_store",
     "make_store",

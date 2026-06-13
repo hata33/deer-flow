@@ -18,10 +18,26 @@
   这个模块集中导入所有模型，确保 Base.metadata 包含完整的表定义。
 """
 
+from deerflow.persistence.channel_connections.model import (
+    ChannelConnectionRow,
+    ChannelConversationRow,
+    ChannelCredentialRow,
+    ChannelOAuthStateRow,
+)
 from deerflow.persistence.feedback.model import FeedbackRow
 from deerflow.persistence.models.run_event import RunEventRow
 from deerflow.persistence.run.model import RunRow
 from deerflow.persistence.thread_meta.model import ThreadMetaRow
 from deerflow.persistence.user.model import UserRow
 
-__all__ = ["FeedbackRow", "RunEventRow", "RunRow", "ThreadMetaRow", "UserRow"]
+__all__ = [
+    "ChannelConnectionRow",
+    "ChannelConversationRow",
+    "ChannelCredentialRow",
+    "ChannelOAuthStateRow",
+    "FeedbackRow",
+    "RunEventRow",
+    "RunRow",
+    "ThreadMetaRow",
+    "UserRow",
+]

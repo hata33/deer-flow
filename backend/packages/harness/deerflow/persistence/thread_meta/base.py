@@ -97,6 +97,15 @@ class ThreadMetaStore(abc.ABC):
         pass
 
     @abc.abstractmethod
+    async def update_owner(self, thread_id: str, owner_user_id: str, *, user_id: str | None | _AutoSentinel = AUTO) -> None:
+        """Move a thread metadata row to a new owner.
+
+        Intended for trusted internal repair/migration paths. No-op if the
+        row does not exist or the caller fails the owner check.
+        """
+        pass
+
+    @abc.abstractmethod
     async def check_access(self, thread_id: str, user_id: str, *, require_existing: bool = False) -> bool:
         """检查 user_id 是否有权访问 thread_id。
 
