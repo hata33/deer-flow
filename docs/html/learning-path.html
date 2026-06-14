@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeerFlow - 学习路径与知识架构</title>
+  <!-- Mermaid：多 CDN 源备选，按顺序尝试加载 -->
+  <script>
+    (function () {
+      var sources = [
+        'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js',
+        'https://unpkg.com/mermaid@11/dist/mermaid.min.js',
+        'https://cdn.bootcdn.net/ajax/libs/mermaid/11.0.0/mermaid.min.js'
+      ];
+      var i = 0;
+      function loadNext() {
+        if (i >= sources.length) { window.dispatchEvent(new Event('mermaid-failed')); return; }
+        var s = document.createElement('script');
+        s.src = sources[i++];
+        s.onload = function () { window.dispatchEvent(new Event('mermaid-ready')); };
+        s.onerror = loadNext;
+        document.head.appendChild(s);
+      }
+      loadNext();
+    })();
+  </script>
+  <!-- 字体：优先本地系统字体，无外部依赖也能正常显示 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+  <style>
+    :root {
+      --bg-primary: #0a0a0f; --bg-secondary: #12121a; --bg-card: #1a1a2e; --border: #2a2a4a;
+      --text-primary: #e8e8f0; --text-secondary: #9999b8; --text-muted: #666688;
+      --accent-blue: #4f8ff7; --accent-purple: #8b5cf6; --accent-green: #22c55e;
+      --accent-orange: #f59e0b; --accent-red: #ef4444; --accent-cyan: #06b6d4; --accent-pink: #ec4899;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.7; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .nav-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(10,10,15,0.85); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0 2rem; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--text-primary); }
+    .nav-logo .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, #4f8ff7, #8b5cf6); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+    .nav-links { display: flex; gap: 0.25rem; }
+    .nav-links a { padding: 0.5rem 1rem; border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 0.875rem; font-weight: 500; transition: all 0.2s; }
+    .nav-links a:hover, .nav-links a.active { background: var(--bg-card); color: var(--text-primary); }
+
+    .main-content { max-width: 1280px; margin: 0 auto; padding: 96px 2rem 4rem; }
+    .section { margin-bottom: 4rem; }
+    .section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .section-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+    .section-header h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .section-header p { color: var(--text-muted); font-size: 0.875rem; margin-left: auto; }
+
+    .diagram-container { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; margin-bottom: 1.5rem; overflow-x: auto; position: relative; }
+    .diagram-container .diagram-label { position: absolute; top: 1rem; right: 1rem; font-size: 0.7rem; color: var(--text-muted); background: var(--bg-card); padding: 0.25rem 0.75rem; border-radius: 6px; font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace; }
+    .diagram-container pre { margin: 0; }
+    .mermaid { display: flex; justify-content: center; }
+
+    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem; }
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 1.75rem; transition: all 0.3s ease; position: relative; overflow: hidden; }
+    .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 14px 14px 0 0; }
+    .card:hover { border-color: rgba(79,143,247,0.3); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+    .card-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; margin-bottom: 1rem; }
+    .card h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .card p { color: var(--text-secondary); font-size: 0.875rem; line-height: 1.7; }
+    .card .tech-tags { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 1rem; }
+    .tech-tag { font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 6px; background: rgba(255,255,255,0.05); color: var(--text-muted); font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace; border: 1px solid rgba(255,255,255,0.05); }
+    .card-badge { position: absolute; top: 1.25rem; right: 1.25rem; font-size: 0.7rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 6px; font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace; }
+
+    .card-blue::before { background: linear-gradient(135deg, #4f8ff7, #8b5cf6); }
+    .card-blue .card-icon { background: rgba(79,143,247,0.15); }
+    .card-green::before { background: linear-gradient(135deg, #22c55e, #06b6d4); }
+    .card-green .card-icon { background: rgba(34,197,94,0.15); }
+    .card-orange::before { background: linear-gradient(135deg, #f59e0b, #ef4444); }
+    .card-orange .card-icon { background: rgba(245,158,11,0.15); }
+    .card-purple::before { background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+    .card-purple .card-icon { background: rgba(139,92,246,0.15); }
+    .card-cyan::before { background: linear-gradient(135deg, #06b6d4, #22c55e); }
+    .card-cyan .card-icon { background: rgba(6,182,212,0.15); }
+    .card-pink::before { background: linear-gradient(135deg, #ec4899, #f59e0b); }
+    .card-pink .card-icon { background: rgba(236,72,153,0.15); }
+
+    .step-flow { display: flex; flex-direction: column; gap: 0; }
+    .step-item { display: flex; gap: 1.25rem; position: relative; }
+    .step-line { width: 40px; display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+    .step-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; border: 2px solid; position: relative; z-index: 1; }
+    .step-connector { width: 2px; flex: 1; background: var(--border); }
+    .step-content { flex: 1; padding-bottom: 1.5rem; }
+    .step-content h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .step-content p { font-size: 0.85rem; color: var(--text-secondary); }
+    .step-content code { font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace; font-size: 0.8rem; background: rgba(79,143,247,0.1); color: var(--accent-blue); padding: 0.15rem 0.4rem; border-radius: 4px; }
+    .step-content ul { margin-top: 0.5rem; padding-left: 1.25rem; }
+    .step-content li { font-size: 0.825rem; color: var(--text-secondary); margin-bottom: 0.25rem; }
+
+    .phase-header { display: flex; align-items: center; gap: 0.75rem; margin: 3rem 0 1.25rem; }
+    .phase-number { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem; flex-shrink: 0; }
+    .phase-header h3 { font-size: 1.25rem; font-weight: 700; }
+    .phase-header .difficulty { margin-left: auto; font-size: 0.75rem; font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace; padding: 0.25rem 0.75rem; border-radius: 6px; }
+
+    .footer { text-align: center; padding: 3rem 0; border-top: 1px solid var(--border); margin-top: 4rem; }
+    .footer p { color: var(--text-muted); font-size: 0.8rem; }
+
+    @media (max-width: 768px) { .main-content { padding: 80px 1rem 2rem; } .nav-links { display: none; } .cards-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="index.html" class="nav-logo">
+      <span class="logo-icon">🦌</span>
+      <span>DeerFlow Learning</span>
+    </a>
+    <div class="nav-links">
+      <a href="index.html">🏠 首页</a>
+      <a href="#roadmap">🗺️ 学习路线</a>
+      <a href="#phase1">Phase 1</a>
+      <a href="#phase2">Phase 2</a>
+      <a href="#phase3">Phase 3</a>
+      <a href="#phase4">Phase 4</a>
+      <a href="#deps">知识依赖</a>
+      <a href="data-flow.html">🌊 数据流</a>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <div style="text-align:center;padding:2rem 0 3rem;">
+      <h1 style="font-size:2.5rem;font-weight:800;margin-bottom:0.75rem;background:linear-gradient(135deg,#e8e8f0,#9999b8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">📚 DeerFlow 学习路径与知识架构</h1>
+      <p style="color:var(--text-secondary);font-size:1.1rem;">从零到精通的完整学习路线图 · 由浅入深 · 每一步都有明确目标</p>
+    </div>
+
+    <!-- Learning Roadmap -->
+    <div class="section" id="roadmap">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(79,143,247,0.15);">🗺️</div>
+        <h2>总览：四阶段学习路线</h2>
+        <p>Learning Roadmap Overview</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Roadmap</span>
+        <pre class="mermaid">
+graph LR
+    subgraph P1["Phase 1: 基础入门"]
+        P1A["项目认知"]
+        P1B["环境搭建"]
+        P1C["配置体系"]
+        P1D["首次运行"]
+    end
+
+    subgraph P2["Phase 2: 核心架构"]
+        P2A["分层设计"]
+        P2B["Gateway API"]
+        P2C["Runtime 运行时"]
+        P2D["数据流"]
+    end
+
+    subgraph P3["Phase 3: Agent 内核"]
+        P3A["LangGraph 图"]
+        P3B["中间件链"]
+        P3C["工具系统"]
+        P3D["沙箱机制"]
+    end
+
+    subgraph P4["Phase 4: 高级专题"]
+        P4A["子代理系统"]
+        P4B["记忆系统"]
+        P4C["MCP 集成"]
+        P4D["IM 通道"]
+        P4E["持久化"]
+    end
+
+    P1A --> P1B --> P1C --> P1D
+    P1D --> P2A --> P2B --> P2C --> P2D
+    P2D --> P3A --> P3B --> P3C --> P3D
+    P3D --> P4A & P4B & P4C & P4D & P4E
+
+    style P1 fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style P2 fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style P3 fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style P4 fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-green">
+          <span class="card-badge" style="background:rgba(34,197,94,0.15);color:#22c55e;">1-2 天</span>
+          <div class="card-icon">🌱</div>
+          <h3>Phase 1 — 基础入门</h3>
+          <p>建立对项目的整体认知：DeerFlow 是什么、怎么跑起来、配置怎么写。目标：能在本地跑通一次完整对话。</p>
+          <div class="tech-tags">
+            <span class="tech-tag">make dev</span>
+            <span class="tech-tag">config.yaml</span>
+            <span class="tech-tag">extensions_config</span>
+          </div>
+        </div>
+        <div class="card card-blue">
+          <span class="card-badge" style="background:rgba(79,143,247,0.15);color:#4f8ff7;">3-5 天</span>
+          <div class="card-icon">🏗️</div>
+          <h3>Phase 2 — 核心架构</h3>
+          <p>理解分层设计（Harness/App）、Gateway API、Runtime 运行时。目标：能画出一次请求的完整流转图。</p>
+          <div class="tech-tags">
+            <span class="tech-tag">FastAPI</span>
+            <span class="tech-tag">RunManager</span>
+            <span class="tech-tag">StreamBridge</span>
+            <span class="tech-tag">LangGraph</span>
+          </div>
+        </div>
+        <div class="card card-purple">
+          <span class="card-badge" style="background:rgba(139,92,246,0.15);color:#8b5cf6;">1-2 周</span>
+          <div class="card-icon">🧠</div>
+          <h3>Phase 3 — Agent 内核</h3>
+          <p>深入 LangGraph 图结构、19 个中间件的协作、工具装配管线、沙箱隔离。目标：能独立修改 agent 行为。</p>
+          <div class="tech-tags">
+            <span class="tech-tag">LeadAgent</span>
+            <span class="tech-tag">Middleware</span>
+            <span class="tech-tag">Sandbox</span>
+            <span class="tech-tag">ThreadState</span>
+          </div>
+        </div>
+        <div class="card card-orange">
+          <span class="card-badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;">2-4 周</span>
+          <div class="card-icon">🚀</div>
+          <h3>Phase 4 — 高级专题</h3>
+          <p>掌握各子系统：子代理委派、记忆提取、MCP 协议、IM 通道集成、持久化层。目标：能为项目贡献 PR。</p>
+          <div class="tech-tags">
+            <span class="tech-tag">Subagents</span>
+            <span class="tech-tag">Memory</span>
+            <span class="tech-tag">MCP</span>
+            <span class="tech-tag">Channels</span>
+            <span class="tech-tag">Persistence</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 1 -->
+    <div class="section" id="phase1">
+      <div class="phase-header">
+        <div class="phase-number" style="background:rgba(34,197,94,0.15);color:#22c55e;">1</div>
+        <h3 style="color:#22c55e;">基础入门</h3>
+        <span class="difficulty" style="background:rgba(34,197,94,0.15);color:#22c55e;">⭐ 初级</span>
+      </div>
+
+      <div class="step-flow">
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 1.1 · 项目认知</h4>
+            <p>理解 DeerFlow 的定位：基于 LangGraph 的 AI 超级 Agent，支持沙箱执行、持久记忆、子代理委派、可扩展工具集成。</p>
+            <ul>
+              <li>读 <code>README.md</code> 了解功能全貌</li>
+              <li>读 <code>backend/CLAUDE.md</code> 理解架构概览</li>
+              <li>理解三层服务：Gateway(8001) + Frontend(3000) + Nginx(2026)</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 1.2 · 环境搭建</h4>
+            <p>本地跑通项目。</p>
+            <ul>
+              <li>Python 3.12+ / Node.js 22+ / pnpm 10.26+</li>
+              <li><code>make check</code> → <code>make install</code> → <code>make dev</code></li>
+              <li>访问 <code>http://localhost:2026</code> 验证</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 1.3 · 配置体系</h4>
+            <p>两个核心配置文件，决定 agent 的能力边界。</p>
+            <ul>
+              <li><code>config.yaml</code> — 模型、工具、沙箱、记忆等</li>
+              <li><code>extensions_config.json</code> — MCP 服务器 + Skills 启用状态</li>
+              <li>配置优先级：<code>DEER_FLOW_CONFIG_PATH</code> → 当前目录 → 父目录</li>
+              <li>热重载机制：基于 mtime 检测变更</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#22c55e;background:rgba(34,197,94,0.3);"></div><div class="step-connector" style="background:transparent;"></div></div>
+          <div class="step-content">
+            <h4 style="color:#22c55e;">Step 1.4 · 首次完整对话</h4>
+            <p>端到端体验一次 agent 对话，观察流式输出、工具调用、记忆生成。</p>
+            <ul>
+              <li>配置至少一个 LLM 模型（OpenAI 兼容 / DeepSeek / Qwen 等）</li>
+              <li>发送消息 → 观察 SSE 流式响应</li>
+              <li>触发工具调用（如 bash 命令）→ 观察沙箱执行</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 2 -->
+    <div class="section" id="phase2">
+      <div class="phase-header">
+        <div class="phase-number" style="background:rgba(79,143,247,0.15);color:#4f8ff7;">2</div>
+        <h3 style="color:#4f8ff7;">核心架构</h3>
+        <span class="difficulty" style="background:rgba(79,143,247,0.15);color:#4f8ff7;">⭐⭐ 中级</span>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Architecture Layers</span>
+        <pre class="mermaid">
+graph TB
+    subgraph FE["🖥️ Frontend Layer"]
+        NextJS["Next.js 16<br/>React 19"]
+        Hooks["Thread Hooks<br/>useThreadStream"]
+    end
+
+    subgraph Proxy["🔄 Proxy Layer"]
+        Nginx["Nginx :2026<br/>反向代理"]
+    end
+
+    subgraph App["🚪 App Layer (app.*)"]
+        Gateway["FastAPI Gateway :8001<br/>REST + SSE"]
+        Routers["Routers<br/>threads/runs/models/..."]
+        Channels["IM Channels<br/>feishu/slack/tg/dingtalk"]
+    end
+
+    subgraph Harness["⚙️ Harness Layer (deerflow.*)"]
+        Runtime["Runtime<br/>RunManager + StreamBridge"]
+        Agent["Agent System<br/>LeadAgent + Middlewares"]
+        Tools["Tool System<br/>sandbox/mcp/builtin"]
+        Models["Model Factory<br/>create_chat_model"]
+        Memory["Memory System<br/>per-user isolation"]
+    end
+
+    subgraph Infra["💾 Infrastructure"]
+        Checkpoint["Checkpointer<br/>状态持久化"]
+        EventStore["Event Store<br/>运行事件"]
+        Sandbox["Sandbox<br/>local / docker"]
+    end
+
+    NextJS --> Nginx
+    Nginx -->|"/api/langgraph/*"| Gateway
+    Nginx -->|"/api/*"| Gateway
+    Nginx -->|"/"| NextJS
+
+    Gateway --> Routers
+    Channels --> Gateway
+    Routers --> Runtime
+    Runtime --> Agent
+    Agent --> Tools & Models & Memory
+    Agent --> Checkpoint
+    Runtime --> EventStore
+    Tools --> Sandbox
+
+    style FE fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style Proxy fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style App fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+    style Harness fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style Infra fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="step-flow">
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#4f8ff7;background:rgba(79,143,247,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#4f8ff7;">Step 2.1 · 分层设计（Harness / App Split）</h4>
+            <p>最关键的架构概念：严格的依赖方向。</p>
+            <ul>
+              <li><strong>Harness</strong>（<code>packages/harness/deerflow/</code>）— 可发布的 agent 框架，导入前缀 <code>deerflow.*</code></li>
+              <li><strong>App</strong>（<code>app/</code>）— 不可发布的应用代码，导入前缀 <code>app.*</code></li>
+              <li>规则：App 可以 import deerflow，但 deerflow 永远不能 import app</li>
+              <li>由 <code>tests/test_harness_boundary.py</code> 强制约束</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#4f8ff7;background:rgba(79,143,247,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#4f8ff7;">Step 2.2 · Gateway API</h4>
+            <p>FastAPI 应用层，提供 REST + SSE 接口。</p>
+            <ul>
+              <li>入口：<code>app/gateway/app.py</code></li>
+              <li>认证链：CORS → CSRF → JWT</li>
+              <li>关键路由：<code>threads</code> / <code>runs</code> / <code>models</code> / <code>skills</code></li>
+              <li>LangGraph 兼容：<code>/api/langgraph/*</code> → Gateway 原生 <code>/api/*</code></li>
+            </ul>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#4f8ff7;background:rgba(79,143,247,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#4f8ff7;">Step 2.3 · Runtime 运行时</h4>
+            <p>Agent 执行的核心引擎。</p>
+            <ul>
+              <li><code>RunManager</code> — 管理运行生命周期（创建/取消/状态）</li>
+              <li><code>StreamBridge</code> — 将 LangChain 事件桥接到 SSE</li>
+              <li><code>run_agent()</code> — 执行入口（<code>runtime/runs/worker.py</code>）</li>
+              <li><code>RunStore</code> — 持久化运行记录（内存/SQL）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#4f8ff7;background:rgba(79,143,247,0.3);"></div><div class="step-connector" style="background:transparent;"></div></div>
+          <div class="step-content">
+            <h4 style="color:#4f8ff7;">Step 2.4 · 数据流</h4>
+            <p>跟踪一次请求的完整流转（参考 <code>data-flow.html</code>）。</p>
+            <ul>
+              <li>用户 → Frontend → Nginx → Gateway → RunManager → Agent → LLM</li>
+              <li>Token 流 → StreamBridge → SSE → Frontend 实时渲染</li>
+              <li>Checkpoint 持久化线程状态</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 3 -->
+    <div class="section" id="phase3">
+      <div class="phase-header">
+        <div class="phase-number" style="background:rgba(139,92,246,0.15);color:#8b5cf6;">3</div>
+        <h3 style="color:#8b5cf6;">Agent 内核</h3>
+        <span class="difficulty" style="background:rgba(139,92,246,0.15);color:#8b5cf6;">⭐⭐⭐ 高级</span>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Middleware Chain (19 hooks)</span>
+        <pre class="mermaid">
+graph TB
+    Entry(["🚀 用户消息进入"])
+
+    subgraph Before["before_agent 准备阶段"]
+        M1["1. ThreadData<br/>📁 线程目录"]
+        M2["2. Uploads<br/>📎 文件注入"]
+        M3["3. Sandbox<br/>🐳 沙箱获取"]
+        M4["4. DanglingToolCall<br/>🔧 悬挂调用修补"]
+    end
+
+    subgraph WrapModel["wrap_model_call 模型包裹"]
+        M5["5. LLMErrorHandling<br/>🔄 重试+熔断"]
+        M6["6. Guardrail<br/>🛡️ 安全策略"]
+        M7["7. SkillActivation<br/>📦 /skill 激活"]
+        M8["8. Summarization<br/>✂️ 上下文压缩"]
+        M9["9. ViewImage<br/>🖼️ 图片注入"]
+        M10["10. DeferredToolFilter<br/>🔍 MCP 工具延迟"]
+    end
+
+    LLM["🤖 LLM 调用"]
+
+    subgraph AfterModel["after_model 后处理"]
+        M11["11. TokenUsage<br/>📊 用量统计"]
+        M12["12. TitleGen<br/>📝 标题生成"]
+        M13["13. Memory<br/>🧠 记忆入队"]
+        M14["14. LoopDetection<br/>🔁 循环检测"]
+        M15["15. Clarification<br/>❓ 澄清拦截"]
+    end
+
+    subgraph WrapTool["wrap_tool_call 工具包裹"]
+        M16["16. Guardrail<br/>🛡️ 调用前检查"]
+        M17["17. SandboxAudit<br/>🔍 命令审计"]
+        M18["18. ToolErrorHandling<br/>⚠️ 错误转换"]
+    end
+
+    Route{"路由决策"}
+    ToolNode["🛠️ 工具执行"]
+    EndNode(["🏁 输出响应"])
+
+    Entry --> M1 --> M2 --> M3 --> M4
+    M4 --> M5 --> M6 --> M7 --> M8 --> M9 --> M10 --> LLM
+    LLM --> M11 --> M12 --> M13 --> M14 --> M15 --> Route
+
+    Route -->|tool_call| M16 --> M17 --> M18 --> ToolNode --> M5
+    Route -->|finish| EndNode
+
+    style Before fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style WrapModel fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style AfterModel fill:#2a1a3e,stroke:#8b5cf6,stroke-width:2px,color:#e8e8f0
+    style WrapTool fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+    style LLM fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style Route fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="step-flow">
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#8b5cf6;background:rgba(139,92,246,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#8b5cf6;">Step 3.1 · LangGraph 图结构</h4>
+            <p>DeerFlow 基于 <code>langchain.agents.create_agent</code> 构建 ReAct Agent。</p>
+            <ul>
+              <li>入口：<code>lead_agent/agent.py::make_lead_agent</code></li>
+              <li>图节点：model node（LLM）+ tools node（工具执行）</li>
+              <li>条件路由：有 tool_calls → tools node，无 → END</li>
+              <li>状态：<code>ThreadState</code>（扩展 <code>AgentState</code>）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#8b5cf6;background:rgba(139,92,246,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#8b5cf6;">Step 3.2 · 中间件链（核心重点）</h4>
+            <p>19 个中间件分四类 hook，严格按顺序执行。</p>
+            <ul>
+              <li><strong>before_agent</strong> — 一次性准备（沙箱、目录、上传文件）</li>
+              <li><strong>wrap_model_call</strong> — 包裹每次 LLM 调用（重试、安全、上下文注入）</li>
+              <li><strong>after_model</strong> — LLM 响应后处理（用量、标题、记忆、循环检测）</li>
+              <li><strong>wrap_tool_call</strong> — 包裹工具调用（审计、错误处理）</li>
+              <li>⭐ 学习建议：逐个读 <code>agents/middlewares/</code> 下的实现</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#8b5cf6;background:rgba(139,92,246,0.3);"></div><div class="step-connector"></div></div>
+          <div class="step-content">
+            <h4 style="color:#8b5cf6;">Step 3.3 · 工具系统</h4>
+            <p>四类工具按优先级装配。</p>
+            <ul>
+              <li>Config Tools（config.yaml）→ MCP Tools → Builtin Tools → SubAgent Tools</li>
+              <li>内置：<code>bash</code> / <code>read_file</code> / <code>write_file</code> / <code>view_image</code> / <code>ask_clarification</code></li>
+              <li>装配入口：<code>tools/tools.py::get_available_tools</code></li>
+            </ul>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line"><div class="step-dot" style="border-color:#8b5cf6;background:rgba(139,92,246,0.3);"></div><div class="step-connector" style="background:transparent;"></div></div>
+          <div class="step-content">
+            <h4 style="color:#8b5cf6;">Step 3.4 · 沙箱机制</h4>
+            <p>工具执行的隔离环境。</p>
+            <ul>
+              <li><strong>LocalSandbox</strong> — 本地文件系统 + 路径映射</li>
+              <li><strong>AioSandbox</strong> — Docker 容器隔离</li>
+              <li>虚拟路径：<code>/mnt/user-data/{workspace,uploads,outputs}</code></li>
+              <li>物理路径：<code>.deer-flow/users/{uid}/threads/{tid}/</code></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 4 -->
+    <div class="section" id="phase4">
+      <div class="phase-header">
+        <div class="phase-number" style="background:rgba(245,158,11,0.15);color:#f59e0b;">4</div>
+        <h3 style="color:#f59e0b;">高级专题</h3>
+        <span class="difficulty" style="background:rgba(245,158,11,0.15);color:#f59e0b;">⭐⭐⭐⭐ 专家</span>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-orange">
+          <div class="card-icon">🤖</div>
+          <h3>子代理系统</h3>
+          <p>任务委派机制。LeadAgent 可通过 <code>task()</code> 工具委派给子代理（general-purpose / bash），双线程池调度，最大并发 3。</p>
+          <div class="tech-tags">
+            <span class="tech-tag">SubagentExecutor</span>
+            <span class="tech-tag">_scheduler_pool</span>
+            <span class="tech-tag">SubagentLimitMiddleware</span>
+          </div>
+        </div>
+        <div class="card card-green">
+          <div class="card-icon">🧠</div>
+          <h3>记忆系统</h3>
+          <p>LLM 驱动的事实提取 + 按用户隔离存储。去抖队列（30s）→ 后台 LLM 提取 → 原子写入 → 注入 System Prompt。</p>
+          <div class="tech-tags">
+            <span class="tech-tag">MemoryMiddleware</span>
+            <span class="tech-tag">MemoryUpdateQueue</span>
+            <span class="tech-tag">per-user</span>
+          </div>
+        </div>
+        <div class="card card-cyan">
+          <div class="card-icon">🔌</div>
+          <h3>MCP 集成</h3>
+          <p>Model Context Protocol 外部工具。支持 stdio / SSE / HTTP 传输，OAuth 认证，mtime 缓存失效，延迟绑定（tool_search）。</p>
+          <div class="tech-tags">
+            <span class="tech-tag">MultiServerMCPClient</span>
+            <span class="tech-tag">DeferredToolFilter</span>
+            <span class="tech-tag">OAuth</span>
+          </div>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">💬</div>
+          <h3>IM 通道集成</h3>
+          <p>飞书/Slack/Telegram/Discord/钉钉。通过 langgraph-sdk HTTP client 与 Gateway 通信，支持流式卡片更新。</p>
+          <div class="tech-tags">
+            <span class="tech-tag">ChannelManager</span>
+            <span class="tech-tag">MessageBus</span>
+            <span class="tech-tag">runs.stream</span>
+          </div>
+        </div>
+        <div class="card card-blue">
+          <div class="card-icon">💾</div>
+          <h3>持久化层</h3>
+          <p>Checkpointer 状态持久化 + RunEventStore 运行事件存储。支持内存/SQLite/PostgreSQL 后端，支持事务和多 worker。</p>
+          <div class="tech-tags">
+            <span class="tech-tag">Checkpointer</span>
+            <span class="tech-tag">RunEventStore</span>
+            <span class="tech-tag">SqliteSync</span>
+          </div>
+        </div>
+        <div class="card card-pink">
+          <div class="card-icon">📦</div>
+          <h3>Skills 系统</h3>
+          <p>SKILL.md 定义的可复用能力。Frontmatter 元数据 + 安全扫描 + 斜杠激活（<code>/skill-name task</code>）+ .skill 归档安装。</p>
+          <div class="tech-tags">
+            <span class="tech-tag">SKILL.md</span>
+            <span class="tech-tag">SkillActivation</span>
+            <span class="tech-tag">LocalSkillStorage</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Knowledge Dependency -->
+    <div class="section" id="deps">
+      <div class="section-header">
+        <div class="section-icon" style="background:rgba(236,72,153,0.15);">🔗</div>
+        <h2>知识依赖图</h2>
+        <p>Knowledge Dependency Graph</p>
+      </div>
+
+      <div class="diagram-container">
+        <span class="diagram-label">Prerequisites</span>
+        <pre class="mermaid">
+graph TB
+    subgraph Foundation["🟢 前置知识（外部）"]
+        Python["Python 3.12+"]
+        LangChain["LangChain 基础"]
+        LangGraph["LangGraph 概念<br/>StateGraph/Checkpointer"]
+        FastAPI["FastAPI 基础"]
+    end
+
+    subgraph Core["🔵 DeerFlow 核心"]
+        Config["配置体系"]
+        Agent["Agent 图"]
+        Middleware["中间件链"]
+        Runtime["Runtime 运行时"]
+    end
+
+    subgraph Advanced["🟡 DeerFlow 高级"]
+        Subagent["子代理"]
+        Memory["记忆系统"]
+        MCP["MCP 集成"]
+        Sandbox["沙箱深入"]
+    end
+
+    subgraph Expert["🟠 专家领域"]
+        Channels["IM 通道"]
+        Persist["持久化设计"]
+        Skills["Skills 体系"]
+        Tracing["追踪/可观测"]
+    end
+
+    Python --> LangChain --> LangGraph
+    Python --> FastAPI
+
+    LangGraph --> Agent
+    Config --> Agent
+    Agent --> Middleware
+    Agent --> Runtime
+    FastAPI --> Runtime
+
+    Middleware --> Subagent
+    Middleware --> Memory
+    Agent --> MCP
+    Agent --> Sandbox
+
+    Runtime --> Channels
+    Runtime --> Persist
+    Agent --> Skills
+    Runtime --> Tracing
+
+    style Foundation fill:#1a3327,stroke:#22c55e,stroke-width:2px,color:#e8e8f0
+    style Core fill:#1a2744,stroke:#4f8ff7,stroke-width:2px,color:#e8e8f0
+    style Advanced fill:#33291a,stroke:#f59e0b,stroke-width:2px,color:#e8e8f0
+    style Expert fill:#331a1a,stroke:#ef4444,stroke-width:2px,color:#e8e8f0
+        </pre>
+      </div>
+
+      <div class="cards-grid">
+        <div class="card card-green">
+          <div class="card-icon">📖</div>
+          <h3>推荐学习顺序</h3>
+          <p>1. Python 异步 → 2. LangChain Messages/Tools → 3. LangGraph StateGraph → 4. FastAPI 路由 → 5. 进入 DeerFlow 源码</p>
+        </div>
+        <div class="card card-blue">
+          <div class="card-icon">🎯</div>
+          <h3>第一个 PR 路径</h3>
+          <p>读完 Phase 1-2 → 在 issue 中找 bug fix 类 issue → 跟 <code>make test</code> + <code>make lint</code> 流程 → 遵循 commit 规范提 PR</p>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🔍</div>
+          <h3>调试技巧</h3>
+          <p>用 <code>langgraph dev</code> 可视化图结构；用 <code>DEER_FLOW_ENV=debug</code> 开启详细日志；追踪用 LangSmith/Langfuse</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>🦌 DeerFlow Learning Path Documentation · Generated with Mermaid.js</p>
+      <p style="margin-top:0.5rem;">
+        <a href="index.html" style="color:var(--accent-blue);text-decoration:none;">← 首页</a>
+        &nbsp;|&nbsp;
+        <a href="data-flow.html" style="color:var(--accent-blue);text-decoration:none;">数据流详情 →</a>
+      </p>
+    </div>
+  </div>
+
+  <style>
+    /* Mermaid 加载失败时的降级样式：把 pre.mermaid 显示为可读的源码块 */
+    .mermaid-fallback pre.mermaid {
+      display: block !important;
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      padding: 1rem;
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+      font-size: 0.78rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-x: auto;
+      text-align: left;
+    }
+    .mermaid-fallback .mermaid::before {
+      content: '⚠️ 图表渲染需要联网加载 Mermaid.js（当前离线，显示源码）';
+      display: block;
+      color: var(--accent-orange);
+      font-size: 0.8rem;
+      margin-bottom: 0.75rem;
+      font-family: inherit;
+    }
+  </style>
+  <script>
+    // Mermaid 配置（加载成功后执行）
+    var MERMAID_CONFIG = {
+      startOnLoad: false,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#1a1a2e', primaryTextColor: '#e8e8f0', primaryBorderColor: '#4f8ff7',
+        lineColor: '#666688', secondaryColor: '#2a2a4a', tertiaryColor: '#1a1a2e',
+        fontFamily: "Inter, -apple-system, 'Microsoft YaHei', sans-serif", fontSize: '13px',
+        clusterBkg: '#12121a', clusterBorder: '#2a2a4a', titleColor: '#e8e8f0',
+        edgeLabelBackground: '#1a1a2e',
+      },
+      flowchart: { htmlLabels: true, curve: 'basis', padding: 15 },
+      sequence: { actorMargin: 50, messageMargin: 35, mirrorActors: false, useMaxWidth: true },
+    };
+
+    function initMermaid() {
+      if (typeof mermaid === 'undefined') {
+        document.body.classList.add('mermaid-fallback');
+        return;
+      }
+      try {
+        mermaid.initialize(MERMAID_CONFIG);
+        mermaid.run({ querySelector: 'pre.mermaid' });
+      } catch (e) {
+        document.body.classList.add('mermaid-fallback');
+        console.error('Mermaid render failed:', e);
+      }
+    }
+
+    // 监听多源加载结果
+    window.addEventListener('mermaid-ready', initMermaid);
+    window.addEventListener('mermaid-failed', function () {
+      document.body.classList.add('mermaid-fallback');
+    });
+    // 兜底：页面加载完 3 秒后若 mermaid 仍不可用，走降级
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        if (!document.body.classList.contains('mermaid-fallback') && typeof mermaid === 'undefined') {
+          document.body.classList.add('mermaid-fallback');
+        }
+      }, 3000);
+    });
+  </script>
+</body>
+</html>
