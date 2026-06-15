@@ -2,9 +2,12 @@
 
 | 字段 | 值 |
 |------|-----|
+| PR | #3561 |
 | 关联 Issue | #3544（Refs，非 Closes —— umbrella 还含 dedupe/rate-limit 等其他 bullet） |
-| Commit | `1da9174b` |
-| 状态 | Submitted, pending review（尚未合并） |
+| Commit | `1783da42` |
+| 状态 | Merged |
+| 合并者 | WillemJiang |
+| 合并时间 | 2026-06-13 |
 | 分支 | fix/discord-file-handle-leak → upstream/main |
 | 改动规模 | 2 文件 +134/-5 行 |
 | 目标 bullet | #3544 中「Use context-managed file handles for Discord uploads」 |
@@ -114,5 +117,4 @@ discord.py 在 `target.send(file)` 内部构造 multipart HTTP 请求时**同步
 
 ## 后续
 
-- 待走 path A（浏览器 compare URL）提交 PR 后回填 PR 编号
-- 合并后更新状态为 Merged + 合并者
+- PR #3561 已由 WillemJiang 于 2026-06-13 合并（merge commit `1783da42`）
