@@ -1,0 +1,75 @@
+name: Refresh Test Durations (temp)
+
+# Temporary helper on the fork: regenerates backend/.test_durations on the
+# same runner image, Python and service setup as backend-unit-tests.yml, so
+# the committed baseline matches what CI's shards actually measure.
+
+on:
+  push:
+    branches: [chore/refresh-shard-durations]
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: deerflow
+          POSTGRES_PASSWORD: deerflow
+          POSTGRES_DB: deerflow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_POSTGRES_URI: postgresql://deerflow:deerflow@localhost:5432/deerflow_test?sslmode=disable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.1"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --group dev --extra postgres
+
+      - name: Regenerate the shard duration baseline
+        working-directory: backend
+        env:
+          DEERFLOW_TEST_WORKFLOW_POSTGRES: ${{ env.TEST_POSTGRES_URI }}
+          DEDUPE_TEST_POSTGRES_URL: ${{ env.TEST_POSTGRES_URI }}
+        run: make test-shard-durations
+
+      - name: Upload refreshed baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations
+          path: backend/.test_durations
